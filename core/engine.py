@@ -100,8 +100,9 @@ class Engine:
             return
 
         qty = DEFAULT_QTY
-        if not self.risk_manager.can_open_position(qty):
-            logger.warning("Señal bloqueada por risk_manager")
+        allowed, reason = self.risk_manager.can_open_position(qty)
+        if not allowed:
+            logger.warning("Señal bloqueada por risk_manager: %s", reason)
             return
 
         if self.order_manager is None:

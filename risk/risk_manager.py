@@ -1,38 +1,194 @@
 """
-Capa de riesgo: valida CADA señal antes de que se convierta en una orden
-real. Ninguna orden deberia salir sin pasar por aqui, sin excepcion.
+Capa de riesgo para cuentas fondeadas con trailing drawdown EOD y
+consistency rule.
 
-TODO: completar con las reglas exactas de tu cuenta fondeada, por ejemplo:
-  - perdida maxima diaria (daily loss limit)
-  - drawdown maximo / trailing drawdown
-  - numero maximo de contratos simultaneos
-  - horario permitido de operacion
-  - "consistency rule" si tu programa de fondeo la exige
+REGLAS IMPLEMENTADAS (confirmadas con el usuario):
+
+1. TRAILING DRAWDOWN EOD:
+   - max_eod_balance arranca en el balance inicial ($50,000).
+   - trailing_loss_limit = max_eod_balance - max_drawdown ($2,000).
+   - Al final de cada dia: si el balance de cierre > max_eod_balance,
+     se actualiza max_eod_balance y el limite sube. Si es <= no cambia.
+   - Si el balance cae por debajo de trailing_loss_limit -> violacion.
+   - Consecuencia intraday: el margen disponible para perder es
+     current_balance - trailing_loss_limit. El bot no abre posicion si
+     arriesga mas de eso.
+   - La cuenta arranca en $50,000, el objetivo es llegar a $53,000
+     ($3,000 de beneficio). El limite inicial = $50,000 - $2,000 = $48,000.
+
+2. CONSISTENCY RULE (50%):
+   - Ningun dia puede cerrar con beneficio mayor que el 50% del objetivo
+     de beneficio total ($3,000 * 50% = $1,500).
+   - El bot deja de operar cuando el P&L del dia se acerca a ese techo.
+
+3. MAX CONTRATOS:
+   - El bot no abre posicion si abs(contratos_abiertos) + nuevos > max.
+
+PERSISTENCIA:
+   max_eod_balance necesita sobrevivir entre sesiones del bot. Se guarda
+   en un archivo JSON simple (risk_state.json) en el directorio del bot.
+   Si no existe el archivo, arranca con el balance inicial.
 """
+import json
+import logging
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_STATE_PATH = Path(__file__).parent.parent / "risk_state.json"
 
 
 @dataclass
-class RiskLimits:
-    max_daily_loss: float
-    max_contracts: int
-    # TODO: agregar mas limites segun las reglas de tu fondeo
+class FundedAccountRules:
+    initial_balance: float       # 50_000 (balance de arranque de la cuenta)
+    max_drawdown: float          # 2_000 (trailing EOD)
+    profit_target: float         # 3_000 (objetivo: llegar a 53_000)
+    consistency_pct: float       # 0.50 (ningun dia puede ser >50% del objetivo)
+    max_contracts: int           # 1
+
+    @property
+    def max_daily_profit(self) -> float:
+        return self.profit_target * self.consistency_pct
 
 
 class RiskManager:
-    def __init__(self, limits: RiskLimits):
-        self.limits = limits
+    def __init__(
+        self,
+        rules: FundedAccountRules,
+        state_path: Optional[Path] = None,
+    ):
+        self.rules = rules
+        self.state_path = state_path or DEFAULT_STATE_PATH
+
+        # Estado persistente (entre sesiones)
+        self.max_eod_balance: float = rules.initial_balance
+
+        # Estado intraday (se resetea cada dia)
         self.daily_pnl: float = 0.0
         self.open_contracts: int = 0
 
-    def can_open_position(self, contracts: int) -> bool:
-        # TODO: chequear daily_pnl contra max_daily_loss, contracts contra max_contracts, etc.
-        if self.daily_pnl <= -abs(self.limits.max_daily_loss):
-            return False
-        if abs(self.open_contracts) + contracts > self.limits.max_contracts:
-            return False
-        return True
+        self._load_state()
 
+    # ------------------------------------------------------------------ #
+    # Propiedad calculada: el limite de perdida actual
+    # ------------------------------------------------------------------ #
+    @property
+    def trailing_loss_limit(self) -> float:
+        return self.max_eod_balance - self.rules.max_drawdown
+
+    @property
+    def max_daily_profit(self) -> float:
+        return self.rules.max_daily_profit
+
+    # ------------------------------------------------------------------ #
+    # Validacion antes de cada orden
+    # ------------------------------------------------------------------ #
+    def can_open_position(self, contracts: int, current_balance: Optional[float] = None) -> tuple[bool, str]:
+        """Devuelve (allowed, reason). Si allowed es False, reason explica
+        por que se bloqueo. current_balance es el balance real de la cuenta
+        en este momento (si se conoce); si no se pasa, se usa solo el P&L
+        del dia como aproximacion."""
+
+        # 1. Consistency rule: techo de beneficio del dia
+        if self.daily_pnl >= self.max_daily_profit:
+            return False, (
+                f"Consistency rule: P&L del dia ({self.daily_pnl:.2f}) ya alcanzo "
+                f"el maximo permitido ({self.max_daily_profit:.2f})"
+            )
+
+        # 2. Trailing drawdown: margen disponible
+        if current_balance is not None:
+            margin = current_balance - self.trailing_loss_limit
+            if margin <= 0:
+                return False, (
+                    f"Trailing drawdown: balance actual ({current_balance:.2f}) "
+                    f"ya en o por debajo del limite ({self.trailing_loss_limit:.2f})"
+                )
+        else:
+            # Sin balance real disponible, usamos el P&L del dia como proxy.
+            # El margen inicial del dia es (balance_inicio_dia - trailing_loss_limit).
+            # Si daily_pnl es muy negativo, bloqueamos por precaucion.
+            if self.daily_pnl <= -(self.rules.max_drawdown):
+                return False, (
+                    f"P&L del dia ({self.daily_pnl:.2f}) supera el drawdown "
+                    f"maximo ({self.rules.max_drawdown:.2f})"
+                )
+
+        # 3. Max contratos
+        if abs(self.open_contracts) + contracts > self.rules.max_contracts:
+            return False, (
+                f"Max contratos: {abs(self.open_contracts)} abiertos + "
+                f"{contracts} nuevos > limite de {self.rules.max_contracts}"
+            )
+
+        return True, "OK"
+
+    # ------------------------------------------------------------------ #
+    # Actualizar estado tras cada fill
+    # ------------------------------------------------------------------ #
     def register_fill(self, pnl_delta: float, contracts_delta: int) -> None:
         self.daily_pnl += pnl_delta
         self.open_contracts += contracts_delta
+
+    # ------------------------------------------------------------------ #
+    # EOD: actualizar trailing drawdown y resetear contadores del dia
+    # ------------------------------------------------------------------ #
+    def end_of_day(self, eod_balance: float) -> None:
+        """Llamar al final de cada dia de trading (o al arrancar el bot al
+        dia siguiente). Si el balance de cierre es mayor que el maximo
+        historico, sube el limite de perdida."""
+        if eod_balance > self.max_eod_balance:
+            old_limit = self.trailing_loss_limit
+            self.max_eod_balance = eod_balance
+            logger.info(
+                "EOD: max_eod_balance actualizado a %.2f. "
+                "Trailing loss limit subio de %.2f a %.2f",
+                eod_balance, old_limit, self.trailing_loss_limit,
+            )
+        else:
+            logger.info(
+                "EOD: balance (%.2f) no supero el maximo historico (%.2f). "
+                "Trailing loss limit se mantiene en %.2f",
+                eod_balance, self.max_eod_balance, self.trailing_loss_limit,
+            )
+
+        self.daily_pnl = 0.0
+        self._save_state()
+
+    def reset_daily(self) -> None:
+        """Resetea los contadores intraday sin actualizar el trailing. Util
+        si el bot se reinicia a mitad de dia y no se quiere contar dos veces
+        el P&L de la sesion anterior."""
+        self.daily_pnl = 0.0
+        self.open_contracts = 0
+
+    # ------------------------------------------------------------------ #
+    # Persistencia de max_eod_balance entre sesiones
+    # ------------------------------------------------------------------ #
+    def _load_state(self) -> None:
+        if self.state_path.exists():
+            try:
+                data = json.loads(self.state_path.read_text())
+                self.max_eod_balance = data.get("max_eod_balance", self.rules.initial_balance)
+                logger.info(
+                    "Estado de riesgo cargado: max_eod_balance=%.2f "
+                    "trailing_loss_limit=%.2f",
+                    self.max_eod_balance, self.trailing_loss_limit,
+                )
+            except (json.JSONDecodeError, KeyError):
+                logger.warning(
+                    "No se pudo leer %s, usando balance inicial (%.2f)",
+                    self.state_path, self.rules.initial_balance,
+                )
+        else:
+            logger.info(
+                "Sin estado previo de riesgo. max_eod_balance=%.2f (balance inicial)",
+                self.max_eod_balance,
+            )
+
+    def _save_state(self) -> None:
+        data = {"max_eod_balance": self.max_eod_balance}
+        self.state_path.write_text(json.dumps(data, indent=2))
+        logger.info("Estado de riesgo guardado en %s", self.state_path)

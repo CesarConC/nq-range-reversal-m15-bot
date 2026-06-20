@@ -24,7 +24,7 @@ from market_data.feed import MarketDataFeed
 from account_data.user_socket import UserDataSocket
 from core.engine import Engine
 from strategy.my_strategy import MyStrategy
-from risk.risk_manager import RiskManager, RiskLimits
+from risk.risk_manager import RiskManager, FundedAccountRules
 from execution.order_manager import OrderManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -36,8 +36,14 @@ logger = logging.getLogger("run_paper")
 # o vía GET /contract/find?name=MNQ antes de correr esto.
 MNQ_SYMBOL = "MNQU6"
 
-# PLACEHOLDER -- reemplazar por las reglas reales de tu cuenta fondeada.
-PLACEHOLDER_RISK_LIMITS = RiskLimits(max_daily_loss=99_999, max_contracts=1)
+# Reglas reales de la cuenta fondeada.
+FUNDED_ACCOUNT_RULES = FundedAccountRules(
+    initial_balance=50_000,
+    max_drawdown=2_000,
+    profit_target=3_000,
+    consistency_pct=0.50,
+    max_contracts=1,
+)
 
 
 async def main():
@@ -58,8 +64,8 @@ async def main():
     order_manager = OrderManager(rest_client, device_id=config.device_id)
     await order_manager.initialize()
 
-    # --- Risk manager con limites PLACEHOLDER (ver advertencia arriba) ---
-    risk_manager = RiskManager(PLACEHOLDER_RISK_LIMITS)
+    # --- Risk manager con las reglas reales de la cuenta fondeada ---
+    risk_manager = RiskManager(FUNDED_ACCOUNT_RULES)
 
     # --- Estrategia + engine, ya con riesgo y ejecucion conectados ---
     strategy = MyStrategy()
@@ -91,9 +97,9 @@ async def main():
     await user_socket.sync()
 
     logger.info(
-        "Bot completo corriendo en DEMO sobre %s. Limites de riesgo son "
-        "PLACEHOLDER. Ctrl+C para salir.",
-        MNQ_SYMBOL,
+        "Bot completo corriendo en DEMO sobre %s. "
+        "Trailing loss limit=%.2f, max profit dia=%.2f. Ctrl+C para salir.",
+        MNQ_SYMBOL, risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
     )
     await asyncio.Future()  # corre indefinidamente hasta Ctrl+C
 

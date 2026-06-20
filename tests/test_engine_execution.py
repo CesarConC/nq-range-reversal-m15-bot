@@ -1,9 +1,11 @@
 import asyncio
+import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from core.engine import Engine
 from strategy.my_strategy import MyStrategy
-from risk.risk_manager import RiskManager, RiskLimits
+from risk.risk_manager import RiskManager, FundedAccountRules
 from tradovate.models import Quote
 
 
@@ -18,6 +20,20 @@ class FakeOrderManager:
     async def enter_from_signal(self, symbol, signal, qty):
         self.calls.append((symbol, signal, qty))
         return {"orderId": 1, "ok": True}
+
+
+def _permissive_rules():
+    return FundedAccountRules(
+        initial_balance=50_000, max_drawdown=99_999,
+        profit_target=99_999, consistency_pct=0.50, max_contracts=5,
+    )
+
+
+def _make_rm(rules=None):
+    return RiskManager(
+        rules or _permissive_rules(),
+        state_path=Path(tempfile.mktemp(suffix=".json")),
+    )
 
 
 def _feed_short_setup(engine, t0):
@@ -38,7 +54,7 @@ def _feed_short_setup(engine, t0):
 
 def test_engine_envia_la_orden_cuando_risk_aprueba():
     order_manager = FakeOrderManager()
-    risk_manager = RiskManager(RiskLimits(max_daily_loss=99999, max_contracts=5))
+    risk_manager = _make_rm()
     engine = Engine(
         strategy=MyStrategy(), symbol="MNQ",
         risk_manager=risk_manager, order_manager=order_manager,
@@ -59,8 +75,8 @@ def test_engine_envia_la_orden_cuando_risk_aprueba():
 
 def test_engine_no_envia_orden_si_risk_bloquea():
     order_manager = FakeOrderManager()
-    risk_manager = RiskManager(RiskLimits(max_daily_loss=100, max_contracts=5))
-    risk_manager.daily_pnl = -500  # ya supero la perdida maxima del dia
+    risk_manager = _make_rm()
+    risk_manager.daily_pnl = -100_000  # ya supero la perdida maxima del dia
 
     engine = Engine(
         strategy=MyStrategy(), symbol="MNQ",
@@ -77,7 +93,7 @@ def test_engine_no_envia_orden_si_risk_bloquea():
 
 
 def test_on_fill_actualiza_estado_y_risk_manager():
-    risk_manager = RiskManager(RiskLimits(max_daily_loss=99999, max_contracts=5))
+    risk_manager = _make_rm()
     engine = Engine(strategy=MyStrategy(), symbol="MNQ", risk_manager=risk_manager)
 
     # abre 1 contrato short a 21320

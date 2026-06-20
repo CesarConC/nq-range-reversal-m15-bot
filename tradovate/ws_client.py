@@ -33,9 +33,9 @@ from typing import Callable, Optional
 
 import websockets
 
-logger = logging.getLogger(__name__)
+from config.settings import bot_settings
 
-HEARTBEAT_INTERVAL_SECONDS = 2.5
+logger = logging.getLogger(__name__)
 
 
 class TradovateWebSocket:
@@ -106,7 +106,7 @@ class TradovateWebSocket:
         la conexion se cae silenciosamente tras un rato (reportado en su foro)."""
         try:
             while not self._closing:
-                await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+                await asyncio.sleep(bot_settings.heartbeat_interval)
                 await self._ws.send("[]")
         except asyncio.CancelledError:
             pass

@@ -19,10 +19,20 @@ class AccountState:
     daily_realized_pnl: float = 0.0
     open_orders: dict = field(default_factory=dict)
 
-    def apply_fill(self, action: str, qty: int, price: float, multiplier: float = 2.0) -> None:
+    def reset_daily(self) -> None:
+        """Resetea los contadores diarios. Llamar junto a RiskManager.reset_daily()
+        o end_of_day() para mantener ambos modulos sincronizados.
+
+        No se tocan position_qty ni avg_entry_price: reflejan la posicion real
+        del broker y deben seguir siendo correctos aunque haya una posicion
+        abierta overnight."""
+        self.daily_realized_pnl = 0.0
+        self.open_orders = {}
+
+    def apply_fill(self, action: str, qty: int, price: float, multiplier: float) -> None:
         """
         action: "Buy" o "Sell", tal como viene en el fill de Tradovate.
-        multiplier: valor en USD por punto del contrato (MNQ = 2.0 USD/punto).
+        multiplier: valor en USD por punto del contrato (bot_settings.point_value).
 
         Si el fill va en la misma direccion que la posicion actual (o no
         hay posicion), simplemente la aumenta y recalcula el precio medio.

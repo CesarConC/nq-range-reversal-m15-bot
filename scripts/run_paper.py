@@ -17,35 +17,19 @@ Uso:
 import asyncio
 import logging
 
-from config.settings import load_config
+from config.settings import bot_settings, load_config
+from config.instances import funded_account_rules
 from tradovate.auth import TradovateAuth
 from tradovate.rest_client import TradovateRestClient
 from market_data.feed import MarketDataFeed
 from account_data.user_socket import UserDataSocket
 from core.engine import Engine
 from strategy.my_strategy import MyStrategy
-from risk.risk_manager import RiskManager, FundedAccountRules
+from risk.risk_manager import RiskManager
 from execution.order_manager import OrderManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("run_paper")
-
-# TODO: ajustar al contrato frontal vigente. El generico "MNQ" no funciona
-# para suscripcion de market data, hace falta el simbolo especifico
-# (ej. MNQU6 = Septiembre 2026). Verificalo en la plataforma de Tradovate
-# o vía GET /contract/find?name=MNQ antes de correr esto.
-MNQ_SYMBOL = "MNQU6"
-
-# Reglas reales de la cuenta fondeada.
-FUNDED_ACCOUNT_RULES = FundedAccountRules(
-    initial_balance=50_000,
-    max_drawdown=2_000,
-    profit_target=3_000,
-    consistency_pct=0.50,
-    max_contracts=1,
-    risk_pct=0.015,    # 1.5% del balance inicial por operacion
-    point_value=2.0,   # MNQ: $2 por punto
-)
 
 
 async def main():
@@ -67,15 +51,16 @@ async def main():
     await order_manager.initialize()
 
     # --- Risk manager con las reglas reales de la cuenta fondeada ---
-    risk_manager = RiskManager(FUNDED_ACCOUNT_RULES)
+    risk_manager = RiskManager(funded_account_rules)
 
     # --- Estrategia + engine, ya con riesgo y ejecucion conectados ---
     strategy = MyStrategy()
     engine = Engine(
         strategy=strategy,
-        symbol=MNQ_SYMBOL,
+        symbol=bot_settings.symbol,
         risk_manager=risk_manager,
         order_manager=order_manager,
+        contract_multiplier=bot_settings.point_value,
     )
 
     # --- Socket de market data: alimenta al engine con quotes en vivo ---
@@ -85,7 +70,7 @@ async def main():
         on_quote=engine.on_quote,
     )
     await feed.connect()
-    await feed.subscribe(MNQ_SYMBOL)
+    await feed.subscribe(bot_settings.symbol)
 
     # --- Socket de usuario: fills reales -> engine.on_fill -> state/riesgo ---
     user_socket = UserDataSocket(
@@ -101,7 +86,7 @@ async def main():
     logger.info(
         "Bot completo corriendo en DEMO sobre %s. "
         "Trailing loss limit=%.2f, max profit dia=%.2f. Ctrl+C para salir.",
-        MNQ_SYMBOL, risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
+        bot_settings.symbol, risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
     )
     await asyncio.Future()  # corre indefinidamente hasta Ctrl+C
 

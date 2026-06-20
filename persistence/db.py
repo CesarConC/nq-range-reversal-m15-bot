@@ -9,7 +9,9 @@ solo migrar a Postgres si el volumen de datos lo justifica.
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "bot.db"
+from config.settings import bot_settings
+
+DB_PATH = Path(bot_settings.db_path)
 
 
 def get_connection() -> sqlite3.Connection:

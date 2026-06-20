@@ -44,9 +44,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from config.settings import bot_settings
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_STATE_PATH = Path(__file__).parent.parent / "risk_state.json"
+DEFAULT_STATE_PATH = Path(bot_settings.risk_state_path)
 
 
 @dataclass(frozen=True)

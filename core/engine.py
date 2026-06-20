@@ -37,8 +37,6 @@ from tradovate.models import Quote, TradeSignal
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_QTY = 1  # TODO: tamaño de posicion real, una vez definido en risk_manager
-
 
 class Engine:
     def __init__(
@@ -99,7 +97,14 @@ class Engine:
             logger.warning("risk_manager no configurado -- señal NO se ejecuta (solo observacion)")
             return
 
-        qty = DEFAULT_QTY
+        qty = self.risk_manager.calculate_contracts(signal.entry_price, signal.stop_loss)
+        if qty == 0:
+            logger.warning(
+                "Señal descartada: SL demasiado lejos para el presupuesto de riesgo "
+                "(entry=%.2f sl=%.2f)", signal.entry_price, signal.stop_loss,
+            )
+            return
+
         allowed, reason = self.risk_manager.can_open_position(qty)
         if not allowed:
             logger.warning("Señal bloqueada por risk_manager: %s", reason)

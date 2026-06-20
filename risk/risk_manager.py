@@ -21,7 +21,16 @@ REGLAS IMPLEMENTADAS (confirmadas con el usuario):
      de beneficio total ($3,000 * 50% = $1,500).
    - El bot deja de operar cuando el P&L del dia se acerca a ese techo.
 
-3. MAX CONTRATOS:
+3. CALCULO DE CONTRATOS (dinamico por operacion):
+   - Presupuesto de riesgo = initial_balance * risk_pct + max(0, daily_pnl).
+     Si el dia va en negativo o a cero, solo se arriesga el % fijo de la
+     cuenta. Si el dia va en positivo, se puede arriesgar ese % mas las
+     ganancias acumuladas del dia.
+   - Contratos = floor(presupuesto / (distancia_sl_en_puntos * point_value))
+   - Resultado acotado a [0, max_contracts]. Si el resultado es 0 (SL
+     demasiado lejos para el presupuesto), el motor descarta la operacion.
+
+4. MAX CONTRATOS:
    - El bot no abre posicion si abs(contratos_abiertos) + nuevos > max.
 
 PERSISTENCIA:
@@ -40,13 +49,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATE_PATH = Path(__file__).parent.parent / "risk_state.json"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FundedAccountRules:
     initial_balance: float       # 50_000 (balance de arranque de la cuenta)
     max_drawdown: float          # 2_000 (trailing EOD)
     profit_target: float         # 3_000 (objetivo: llegar a 53_000)
     consistency_pct: float       # 0.50 (ningun dia puede ser >50% del objetivo)
-    max_contracts: int           # 1
+    max_contracts: int           # limite duro de contratos simultaneos
+    risk_pct: float              # 0.015 (1.5% del balance inicial por operacion)
+    point_value: float           # USD por punto del contrato (MNQ=2.0, NQ=20.0)
 
     @property
     def max_daily_profit(self) -> float:
@@ -81,6 +92,32 @@ class RiskManager:
     @property
     def max_daily_profit(self) -> float:
         return self.rules.max_daily_profit
+
+    # ------------------------------------------------------------------ #
+    # Calculo dinamico de contratos por operacion
+    # ------------------------------------------------------------------ #
+    def calculate_contracts(self, entry_price: float, stop_loss: float) -> int:
+        """Devuelve el numero de contratos a operar segun el presupuesto de
+        riesgo actual y la distancia al SL.
+
+        - Si daily_pnl <= 0: presupuesto = initial_balance * risk_pct
+        - Si daily_pnl > 0:  presupuesto = initial_balance * risk_pct + daily_pnl
+        - Resultado acotado a [0, max_contracts]. 0 significa que el SL esta
+          demasiado lejos para el presupuesto; el motor debe descartar la trade.
+        """
+        risk_budget = (
+            self.rules.initial_balance * self.rules.risk_pct
+            + max(0.0, self.daily_pnl)
+        )
+        sl_distance = abs(entry_price - stop_loss)
+        risk_per_contract = sl_distance * self.rules.point_value
+        contracts = int(risk_budget / risk_per_contract)
+        contracts = min(contracts, self.rules.max_contracts)
+        logger.info(
+            "calculate_contracts: presupuesto=%.2f sl_dist=%.4f rpc=%.2f -> %d contratos",
+            risk_budget, sl_distance, risk_per_contract, contracts,
+        )
+        return contracts
 
     # ------------------------------------------------------------------ #
     # Validacion antes de cada orden

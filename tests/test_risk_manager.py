@@ -11,6 +11,8 @@ RULES = FundedAccountRules(
     profit_target=3_000,
     consistency_pct=0.50,
     max_contracts=1,
+    risk_pct=0.015,
+    point_value=2.0,  # MNQ
 )
 
 
@@ -168,3 +170,74 @@ def test_register_fill_acumula_pnl_y_contratos():
     r.register_fill(pnl_delta=-50, contracts_delta=-1)
     assert r.daily_pnl == 150
     assert r.open_contracts == 0
+
+
+# ------------------------------------------------------------------ #
+# calculate_contracts
+# ------------------------------------------------------------------ #
+def test_contratos_basico_sin_pnl():
+    """1.5% de $50k = $750 de presupuesto. SL a 50 puntos * $2 = $100/contrato -> 7 contratos,
+    pero max_contracts=1 en RULES, asi que el resultado es 1."""
+    r = rm()
+    # entry=21000, sl=21050 -> distancia=50 puntos, rpc=$100
+    qty = r.calculate_contracts(entry_price=21_000, stop_loss=21_050)
+    # floor(750 / 100) = 7, acotado a max_contracts=1
+    assert qty == 1
+
+
+def test_contratos_usa_reglas_con_max_mayor():
+    """Con max_contracts=10 se puede ver el calculo dinamico sin estar acotado."""
+    from pathlib import Path
+    import tempfile
+    rules = FundedAccountRules(
+        initial_balance=50_000, max_drawdown=2_000,
+        profit_target=3_000, consistency_pct=0.50,
+        max_contracts=10, risk_pct=0.015, point_value=2.0,
+    )
+    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    # distancia SL = 50 puntos * $2 = $100/contrato; presupuesto = $750 -> 7 contratos
+    assert r.calculate_contracts(21_000, 21_050) == 7
+
+
+def test_contratos_pnl_positivo_amplia_presupuesto():
+    """Con $300 de ganancia en el dia, el presupuesto sube a $750 + $300 = $1050."""
+    from pathlib import Path
+    import tempfile
+    rules = FundedAccountRules(
+        initial_balance=50_000, max_drawdown=2_000,
+        profit_target=3_000, consistency_pct=0.50,
+        max_contracts=20, risk_pct=0.015, point_value=2.0,
+    )
+    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r.daily_pnl = 300.0
+    # presupuesto = 750 + 300 = 1050; rpc = 50 * 2 = 100 -> floor(1050/100) = 10
+    assert r.calculate_contracts(21_000, 21_050) == 10
+
+
+def test_contratos_pnl_negativo_no_reduce_presupuesto():
+    """Con el dia en negativo el presupuesto es solo el % fijo (no baja de ahi)."""
+    from pathlib import Path
+    import tempfile
+    rules = FundedAccountRules(
+        initial_balance=50_000, max_drawdown=2_000,
+        profit_target=3_000, consistency_pct=0.50,
+        max_contracts=20, risk_pct=0.015, point_value=2.0,
+    )
+    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r.daily_pnl = -500.0
+    # presupuesto = 750 + max(0, -500) = 750; rpc = 100 -> 7
+    assert r.calculate_contracts(21_000, 21_050) == 7
+
+
+def test_contratos_sl_muy_lejos_devuelve_cero():
+    """Si el SL esta tan lejos que ni 1 contrato cabe en el presupuesto, devuelve 0."""
+    from pathlib import Path
+    import tempfile
+    rules = FundedAccountRules(
+        initial_balance=50_000, max_drawdown=2_000,
+        profit_target=3_000, consistency_pct=0.50,
+        max_contracts=5, risk_pct=0.015, point_value=20.0,  # NQ: $20/punto
+    )
+    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    # presupuesto = $750; sl a 100 puntos * $20 = $2000/contrato -> floor(750/2000) = 0
+    assert r.calculate_contracts(21_000, 21_100) == 0

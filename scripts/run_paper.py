@@ -43,6 +43,8 @@ FUNDED_ACCOUNT_RULES = FundedAccountRules(
     profit_target=3_000,
     consistency_pct=0.50,
     max_contracts=1,
+    risk_pct=0.015,    # 1.5% del balance inicial por operacion
+    point_value=2.0,   # MNQ: $2 por punto
 )
 
 

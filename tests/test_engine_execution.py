@@ -26,6 +26,7 @@ def _permissive_rules():
     return FundedAccountRules(
         initial_balance=50_000, max_drawdown=99_999,
         profit_target=99_999, consistency_pct=0.50, max_contracts=5,
+        risk_pct=0.015, point_value=2.0,  # MNQ
     )
 
 
@@ -70,7 +71,9 @@ def test_engine_envia_la_orden_cuando_risk_aprueba():
     symbol, signal, qty = order_manager.calls[0]
     assert symbol == "MNQ"
     assert signal.direction == "SHORT"
-    assert qty == 1
+    # entry=21320 tp=21300 reward=20 risk=20/0.33≈60.6 sl≈21380.6
+    # presupuesto=750, rpc=60.6*2=121.2 -> floor(750/121.2)=6, acotado a max_contracts=5
+    assert qty == 5
 
 
 def test_engine_no_envia_orden_si_risk_bloquea():

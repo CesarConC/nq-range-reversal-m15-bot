@@ -48,7 +48,7 @@ from config.settings import bot_settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STATE_PATH = Path(bot_settings.risk_state_path)
+DEFAULT_STATE_PATH = Path(bot_settings.RISK_STATE_PATH)
 
 
 @dataclass(frozen=True)

@@ -180,7 +180,7 @@ class MyStrategy(BaseStrategy):
             )
             return None
 
-        risk = reward / bot_settings.rr_ratio
+        risk = reward / bot_settings.RR_RATIO
         sl = entry - risk if r.locked_direction == "LONG" else entry + risk
 
         return TradeSignal(

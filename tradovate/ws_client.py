@@ -106,7 +106,7 @@ class TradovateWebSocket:
         la conexion se cae silenciosamente tras un rato (reportado en su foro)."""
         try:
             while not self._closing:
-                await asyncio.sleep(bot_settings.heartbeat_interval)
+                await asyncio.sleep(bot_settings.HEARTBEAT_INTERVAL)
                 await self._ws.send("[]")
         except asyncio.CancelledError:
             pass

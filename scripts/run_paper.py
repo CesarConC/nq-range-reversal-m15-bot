@@ -27,12 +27,16 @@ from core.engine import Engine
 from strategy.my_strategy import MyStrategy
 from risk.risk_manager import RiskManager
 from execution.order_manager import OrderManager
+from persistence.init_db import create_db_and_tables
+from persistence.repository import TradeRepository
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("run_paper")
 
 
 async def main():
+    create_db_and_tables()
+
     config = load_config()
 
     auth = TradovateAuth(config)
@@ -53,14 +57,18 @@ async def main():
     # --- Risk manager con las reglas reales de la cuenta fondeada ---
     risk_manager = RiskManager(funded_account_rules)
 
-    # --- Estrategia + engine, ya con riesgo y ejecucion conectados ---
+    # --- Persistencia: guarda señales y operaciones en SQLite ---
+    trade_repo = TradeRepository()
+
+    # --- Estrategia + engine, ya con riesgo, ejecucion y persistencia ---
     strategy = MyStrategy()
     engine = Engine(
         strategy=strategy,
-        symbol=bot_settings.symbol,
+        symbol=bot_settings.SYMBOL,
         risk_manager=risk_manager,
         order_manager=order_manager,
-        contract_multiplier=bot_settings.point_value,
+        trade_repo=trade_repo,
+        contract_multiplier=bot_settings.POINT_VALUE,
     )
 
     # --- Socket de market data: alimenta al engine con quotes en vivo ---
@@ -70,7 +78,7 @@ async def main():
         on_quote=engine.on_quote,
     )
     await feed.connect()
-    await feed.subscribe(bot_settings.symbol)
+    await feed.subscribe(bot_settings.SYMBOL)
 
     # --- Socket de usuario: fills reales -> engine.on_fill -> state/riesgo ---
     user_socket = UserDataSocket(
@@ -86,7 +94,7 @@ async def main():
     logger.info(
         "Bot completo corriendo en DEMO sobre %s. "
         "Trailing loss limit=%.2f, max profit dia=%.2f. Ctrl+C para salir.",
-        bot_settings.symbol, risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
+        bot_settings.SYMBOL, risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
     )
     await asyncio.Future()  # corre indefinidamente hasta Ctrl+C
 

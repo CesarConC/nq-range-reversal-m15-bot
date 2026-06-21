@@ -42,7 +42,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from config.settings import bot_settings
 
@@ -124,20 +124,41 @@ class RiskManager:
     # ------------------------------------------------------------------ #
     # Validacion antes de cada orden
     # ------------------------------------------------------------------ #
-    def can_open_position(self, contracts: int, current_balance: Optional[float] = None) -> tuple[bool, str]:
+    def can_open_position(
+        self,
+        contracts: int,
+        direction: Literal["LONG", "SHORT"],
+        current_balance: Optional[float] = None,
+    ) -> tuple[bool, str]:
         """Devuelve (allowed, reason). Si allowed es False, reason explica
-        por que se bloqueo. current_balance es el balance real de la cuenta
-        en este momento (si se conoce); si no se pasa, se usa solo el P&L
-        del dia como aproximacion."""
+        por que se bloqueo.
 
-        # 1. Consistency rule: techo de beneficio del dia
+        direction: direccion de la nueva operacion ("LONG" o "SHORT").
+        current_balance: balance real de la cuenta en este momento (si se
+          conoce); si no se pasa, se usa el P&L del dia como aproximacion.
+        """
+
+        # 1. Conflicto de direccion: no se puede abrir en sentido contrario
+        #    a una operacion ya abierta.
+        if self.open_contracts > 0 and direction == "SHORT":
+            return False, (
+                f"Hay una operacion LONG abierta ({self.open_contracts} contratos). "
+                f"Espera a que se cierre antes de abrir SHORT."
+            )
+        if self.open_contracts < 0 and direction == "LONG":
+            return False, (
+                f"Hay una operacion SHORT abierta ({abs(self.open_contracts)} contratos). "
+                f"Espera a que se cierre antes de abrir LONG."
+            )
+
+        # 2. Consistency rule: techo de beneficio del dia
         if self.daily_pnl >= self.max_daily_profit:
             return False, (
                 f"Consistency rule: P&L del dia ({self.daily_pnl:.2f}) ya alcanzo "
                 f"el maximo permitido ({self.max_daily_profit:.2f})"
             )
 
-        # 2. Trailing drawdown: margen disponible
+        # 3. Trailing drawdown: margen disponible
         if current_balance is not None:
             margin = current_balance - self.trailing_loss_limit
             if margin <= 0:
@@ -155,7 +176,7 @@ class RiskManager:
                     f"maximo ({self.rules.max_drawdown:.2f})"
                 )
 
-        # 3. Max contratos
+        # 4. Max contratos
         if abs(self.open_contracts) + contracts > self.rules.max_contracts:
             return False, (
                 f"Max contratos: {abs(self.open_contracts)} abiertos + "

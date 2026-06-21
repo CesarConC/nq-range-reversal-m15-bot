@@ -78,14 +78,14 @@ def test_dia_negativo_no_mueve_limite():
 def test_bloquea_si_pnl_negativo_supera_drawdown():
     r = rm()
     r.daily_pnl = -2_100
-    allowed, reason = r.can_open_position(1)
+    allowed, reason = r.can_open_position(1, "LONG")
     assert not allowed
     assert "P&L" in reason or "drawdown" in reason.lower()
 
 
 def test_bloquea_con_balance_real_bajo_limite():
     r = rm()
-    allowed, reason = r.can_open_position(1, current_balance=47_500)
+    allowed, reason = r.can_open_position(1, "LONG", current_balance=47_500)
     assert not allowed
     assert "trailing" in reason.lower()
 
@@ -100,7 +100,7 @@ def test_max_daily_profit():
 def test_bloquea_si_pnl_positivo_alcanza_techo():
     r = rm()
     r.daily_pnl = 1_500
-    allowed, reason = r.can_open_position(1)
+    allowed, reason = r.can_open_position(1, "LONG")
     assert not allowed
     assert "consistency" in reason.lower()
 
@@ -108,7 +108,51 @@ def test_bloquea_si_pnl_positivo_alcanza_techo():
 def test_permite_si_pnl_positivo_debajo_del_techo():
     r = rm()
     r.daily_pnl = 1_400
-    allowed, _ = r.can_open_position(1)
+    allowed, _ = r.can_open_position(1, "LONG")
+    assert allowed
+
+
+# ------------------------------------------------------------------ #
+# Conflicto de direccion
+# ------------------------------------------------------------------ #
+def test_bloquea_short_si_long_abierto():
+    r = rm()
+    r.open_contracts = 1  # long abierto
+    allowed, reason = r.can_open_position(1, "SHORT")
+    assert not allowed
+    assert "LONG" in reason and "SHORT" in reason
+
+
+def test_bloquea_long_si_short_abierto():
+    r = rm()
+    r.open_contracts = -1  # short abierto
+    allowed, reason = r.can_open_position(1, "LONG")
+    assert not allowed
+    assert "SHORT" in reason and "LONG" in reason
+
+
+def test_permite_long_si_plano():
+    r = rm()
+    allowed, _ = r.can_open_position(1, "LONG")
+    assert allowed
+
+
+def test_permite_short_si_plano():
+    r = rm()
+    allowed, _ = r.can_open_position(1, "SHORT")
+    assert allowed
+
+
+def test_permite_anadir_long_a_long_existente():
+    """Con max_contracts=5, se puede añadir en la misma direccion."""
+    rules = FundedAccountRules(
+        initial_balance=50_000, max_drawdown=2_000,
+        profit_target=3_000, consistency_pct=0.50,
+        max_contracts=5, risk_pct=0.015, point_value=2.0,
+    )
+    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r.open_contracts = 2  # ya hay 2 longs
+    allowed, _ = r.can_open_position(1, "LONG")
     assert allowed
 
 
@@ -117,22 +161,15 @@ def test_permite_si_pnl_positivo_debajo_del_techo():
 # ------------------------------------------------------------------ #
 def test_bloquea_si_max_contratos_alcanzado():
     r = rm()
-    r.open_contracts = 1
-    allowed, reason = r.can_open_position(1)
+    r.open_contracts = 1  # long, max_contracts=1
+    allowed, reason = r.can_open_position(1, "LONG")
     assert not allowed
     assert "contrato" in reason.lower()
 
 
-def test_bloquea_si_short_ya_abierto():
-    r = rm()
-    r.open_contracts = -1  # short 1 contrato
-    allowed, reason = r.can_open_position(1)
-    assert not allowed
-
-
 def test_permite_si_sin_contratos_abiertos():
     r = rm()
-    allowed, _ = r.can_open_position(1)
+    allowed, _ = r.can_open_position(1, "LONG")
     assert allowed
 
 
@@ -187,8 +224,6 @@ def test_contratos_basico_sin_pnl():
 
 def test_contratos_usa_reglas_con_max_mayor():
     """Con max_contracts=10 se puede ver el calculo dinamico sin estar acotado."""
-    from pathlib import Path
-    import tempfile
     rules = FundedAccountRules(
         initial_balance=50_000, max_drawdown=2_000,
         profit_target=3_000, consistency_pct=0.50,
@@ -201,8 +236,6 @@ def test_contratos_usa_reglas_con_max_mayor():
 
 def test_contratos_pnl_positivo_amplia_presupuesto():
     """Con $300 de ganancia en el dia, el presupuesto sube a $750 + $300 = $1050."""
-    from pathlib import Path
-    import tempfile
     rules = FundedAccountRules(
         initial_balance=50_000, max_drawdown=2_000,
         profit_target=3_000, consistency_pct=0.50,
@@ -216,8 +249,6 @@ def test_contratos_pnl_positivo_amplia_presupuesto():
 
 def test_contratos_pnl_negativo_no_reduce_presupuesto():
     """Con el dia en negativo el presupuesto es solo el % fijo (no baja de ahi)."""
-    from pathlib import Path
-    import tempfile
     rules = FundedAccountRules(
         initial_balance=50_000, max_drawdown=2_000,
         profit_target=3_000, consistency_pct=0.50,
@@ -231,8 +262,6 @@ def test_contratos_pnl_negativo_no_reduce_presupuesto():
 
 def test_contratos_sl_muy_lejos_devuelve_cero():
     """Si el SL esta tan lejos que ni 1 contrato cabe en el presupuesto, devuelve 0."""
-    from pathlib import Path
-    import tempfile
     rules = FundedAccountRules(
         initial_balance=50_000, max_drawdown=2_000,
         profit_target=3_000, consistency_pct=0.50,

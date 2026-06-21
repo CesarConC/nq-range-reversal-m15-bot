@@ -105,7 +105,7 @@ class Engine:
             )
             return
 
-        allowed, reason = self.risk_manager.can_open_position(qty)
+        allowed, reason = self.risk_manager.can_open_position(qty, signal.direction)
         if not allowed:
             logger.warning("Señal bloqueada por risk_manager: %s", reason)
             return

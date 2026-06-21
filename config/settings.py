@@ -7,19 +7,19 @@ Dos bloques diferenciados:
                      Lee variables de entorno con prefijo TRADOVATE_.
 
   BotSettings      - parametros de negocio y operacion del bot.
-                     Lee variables de entorno con prefijo BOT_.
-                     Todos tienen valores por defecto para poder arrancar
-                     sin fichero .env; sobreescribelos en .env o como
-                     variables de entorno en produccion/nube.
+                     Cada campo declara explicitamente su variable de entorno;
+                     todos tienen valor por defecto para arrancar sin .env.
+                     En produccion/nube sobreescribe los que necesites.
 
 Nunca hardcodear credenciales en el codigo fuente.
 """
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings
 
 load_dotenv()
 
@@ -83,38 +83,42 @@ def load_config() -> TradovateConfig:
 
 
 # --------------------------------------------------------------------------- #
-# Parametros de negocio y operacion del bot  (prefijo BOT_ en env vars)
+# Parametros de negocio y operacion del bot
 # --------------------------------------------------------------------------- #
 
 class BotSettings(BaseSettings):
     # --- Contrato ---
-    symbol: str = Field(default="MNQU6")          # simbolo del contrato frontal
-    point_value: float = Field(default=2.0)        # USD/punto: MNQ=2.0, NQ=20.0
+    SYMBOL: str = Field(default="MNQU6", env='SYMBOL')
+    POINT_VALUE: float = Field(default=2.0, env='POINT_VALUE')          # USD/punto: MNQ=2.0, NQ=20.0
 
     # --- Cuenta fondeada ---
-    initial_balance: float = Field(default=50_000.0)
-    max_drawdown: float = Field(default=2_000.0)
-    profit_target: float = Field(default=3_000.0)
-    consistency_pct: float = Field(default=0.50)   # ningun dia puede superar este % del objetivo
-    max_contracts: int = Field(default=1)
-    risk_pct: float = Field(default=0.015)         # 1.5% del balance inicial por operacion
+    INITIAL_BALANCE: float = Field(default=50_000.0, env='INITIAL_BALANCE')
+    MAX_DRAWDOWN: float = Field(default=2_000.0, env='MAX_DRAWDOWN')
+    PROFIT_TARGET: float = Field(default=3_000.0, env='PROFIT_TARGET')
+    CONSISTENCY_PCT: float = Field(default=0.50, env='CONSISTENCY_PCT')  # ningun dia puede superar este % del objetivo
+    MAX_CONTRACTS: int = Field(default=1, env='MAX_CONTRACTS')
+    RISK_PCT: float = Field(default=0.015, env='RISK_PCT')               # 1.5% del balance inicial por operacion
 
     # --- Estrategia ---
-    rr_ratio: float = Field(default=0.33)          # reward = 0.33 * risk
+    RR_RATIO: float = Field(default=0.33, env='RR_RATIO')               # reward = 0.33 * risk
 
     # --- WebSocket ---
-    heartbeat_interval: float = Field(default=2.5) # segundos entre heartbeats a Tradovate
+    HEARTBEAT_INTERVAL: float = Field(default=2.5, env='HEARTBEAT_INTERVAL')  # segundos entre heartbeats
 
     # --- Persistencia ---
-    risk_state_path: str = Field(default="risk_state.json")
-    db_path: str = Field(default="bot.db")
+    RISK_STATE_PATH: str = Field(default="risk_state.json", env='RISK_STATE_PATH')
+    DB_PATH: str = Field(default="bot.db", env='DB_PATH')
+    DATABASE_URL: str = Field(default="", env='DATABASE_URL')
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_prefix="BOT_",
-        case_sensitive=False,
-        extra="ignore",
-    )
+    @model_validator(mode='after')
+    def _resolve_database_url(self) -> 'BotSettings':
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = f"sqlite:///{Path(self.DB_PATH).resolve()}"
+        return self
+
+    class Config:
+        env_file = '.env'
+        case_sensitive = True
 
 
 bot_settings = BotSettings()

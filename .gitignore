@@ -1,0 +1,4 @@
+.venv
+notas.txt
+__pycache__
+.pytest_cache

@@ -33,12 +33,11 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from config.settings import bot_settings
 from strategy.base_strategy import BaseStrategy
 from tradovate.models import Candle, TradeSignal
 
 logger = logging.getLogger(__name__)
-
-RR_RATIO = 0.33  # gano 0.33R, pierdo 1R
 
 
 @dataclass
@@ -181,7 +180,7 @@ class MyStrategy(BaseStrategy):
             )
             return None
 
-        risk = reward / RR_RATIO
+        risk = reward / bot_settings.rr_ratio
         sl = entry - risk if r.locked_direction == "LONG" else entry + risk
 
         return TradeSignal(

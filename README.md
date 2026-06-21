@@ -97,7 +97,7 @@ tests/           suite de tests unitarios
 - [x] Estado de cuenta en memoria (posicion, PnL, fills)
 - [x] Socket de usuario: fills y posiciones en tiempo real
 - [x] Persistencia de señales y operaciones en SQLite
-- [-] Backtesting contra datos historicos
+- [ ] Backtesting contra datos historicos
 - [ ] Validacion prolongada en demo antes de activar `run_live.py`
 
 ## Notas importantes

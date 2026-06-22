@@ -15,6 +15,7 @@ from persistence.common import (
     now_utc,
     validate_account_id,
     validate_direction,
+    validate_non_blank_str,
     validate_positive_float,
     validate_symbol,
     validate_uuid_str,
@@ -328,4 +329,162 @@ class RiskState(SQLModel, table=True):
     @field_validator('updated_at')
     @classmethod
     def _ensure_tz_aware_updated_at(cls, v: datetime) -> datetime:
+        return ensure_tz_aware(v)
+
+
+class Account(SQLModel, table=True):
+    """
+    Registro de cada cuenta fondeada que opera el bot.
+    Una fila por cuenta; el script principal arranca un engine por cada
+    cuenta con is_active=True.
+
+    Las credenciales de Tradovate NO se guardan aqui: secrets_key apunta
+    al secreto en AWS Secrets Manager (o al prefijo de env vars en local).
+    """
+    __tablename__ = 'account'
+
+    account_id: str = Field(
+        primary_key=True,
+        description='Identificador unico de la cuenta, ej. "apex1", "topstep2".',
+    )
+    label: str = Field(
+        nullable=False,
+        description='Nombre legible para logs y alertas, ej. "Apex Prop #1".',
+    )
+    tradovate_env: str = Field(
+        default='demo',
+        nullable=False,
+        description='"demo" o "live". Determina contra que entorno de Tradovate opera.',
+    )
+    secrets_key: str = Field(
+        nullable=False,
+        description='Referencia al secreto en AWS Secrets Manager, ej. "/bot/apex1/tradovate". En local se ignora y se usan las vars TRADOVATE_* del entorno.',
+    )
+    username: str = Field(
+        nullable=False,
+        description='Nombre de usuario de Tradovate (email o login). No es sensible; la contrasena y credenciales API estan en Secrets Manager.',
+    )
+    symbol: str = Field(
+        nullable=False,
+        description='Contrato activo a operar, ej. "MNQU6".',
+    )
+    point_value: float = Field(
+        nullable=False,
+        description='USD por punto del contrato: MNQ=2.0, NQ=20.0.',
+    )
+    initial_balance: float = Field(
+        nullable=False,
+        description='Balance inicial de la cuenta fondeada.',
+    )
+    max_drawdown: float = Field(
+        nullable=False,
+        description='Drawdown maximo permitido en USD (trailing EOD).',
+    )
+    profit_target: float = Field(
+        nullable=False,
+        description='Objetivo de beneficio en USD.',
+    )
+    consistency_pct: float = Field(
+        nullable=False,
+        description='Ningun dia puede superar este porcentaje del profit_target.',
+    )
+    max_contracts: int = Field(
+        nullable=False,
+        description='Maximo de contratos simultaneos.',
+    )
+    risk_pct: float = Field(
+        nullable=False,
+        description='Riesgo por operacion como fraccion del balance inicial, ej. 0.015.',
+    )
+    is_active: bool = Field(
+        default=True,
+        description='Solo las cuentas activas arrancan al iniciar el bot.',
+    )
+    created_at: datetime = Field(
+        default_factory=now_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+        description='Timestamp UTC de creacion del registro.',
+    )
+    updated_at: datetime = Field(
+        default_factory=now_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+        description='Timestamp UTC de la ultima modificacion.',
+    )
+
+    @field_validator('account_id')
+    @classmethod
+    def _validate_account_id(cls, v: str) -> str:
+        return validate_account_id(v)
+
+    @field_validator('label')
+    @classmethod
+    def _validate_label(cls, v: str) -> str:
+        return validate_non_blank_str(v, 'label')
+
+    @field_validator('tradovate_env')
+    @classmethod
+    def _validate_tradovate_env(cls, v: str) -> str:
+        if v not in ('demo', 'live'):
+            raise ValueError("tradovate_env must be 'demo' or 'live'")
+        return v
+
+    @field_validator('secrets_key')
+    @classmethod
+    def _validate_secrets_key(cls, v: str) -> str:
+        return validate_non_blank_str(v, 'secrets_key')
+
+    @field_validator('username')
+    @classmethod
+    def _validate_username(cls, v: str) -> str:
+        return validate_non_blank_str(v, 'username')
+
+    @field_validator('symbol')
+    @classmethod
+    def _validate_symbol(cls, v: str) -> str:
+        return validate_symbol(v)
+
+    @field_validator('point_value')
+    @classmethod
+    def _validate_point_value(cls, v: float) -> float:
+        return validate_positive_float(v, 'point_value')
+
+    @field_validator('initial_balance')
+    @classmethod
+    def _validate_initial_balance(cls, v: float) -> float:
+        return validate_positive_float(v, 'initial_balance')
+
+    @field_validator('max_drawdown')
+    @classmethod
+    def _validate_max_drawdown(cls, v: float) -> float:
+        return validate_positive_float(v, 'max_drawdown')
+
+    @field_validator('profit_target')
+    @classmethod
+    def _validate_profit_target(cls, v: float) -> float:
+        return validate_positive_float(v, 'profit_target')
+
+    @field_validator('consistency_pct')
+    @classmethod
+    def _validate_consistency_pct(cls, v: float) -> float:
+        if not (0 < v < 1):
+            raise ValueError('consistency_pct must be between 0 and 1 exclusive')
+        return v
+
+    @field_validator('max_contracts')
+    @classmethod
+    def _validate_max_contracts(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError('max_contracts must be >= 1')
+        return v
+
+    @field_validator('risk_pct')
+    @classmethod
+    def _validate_risk_pct(cls, v: float) -> float:
+        if not (0 < v < 1):
+            raise ValueError('risk_pct must be between 0 and 1 exclusive')
+        return v
+
+    @field_validator('created_at', 'updated_at')
+    @classmethod
+    def _ensure_tz_aware(cls, v: datetime) -> datetime:
         return ensure_tz_aware(v)

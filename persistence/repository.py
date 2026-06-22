@@ -16,7 +16,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from persistence.common import TradeStatus, now_utc
-from persistence.models import RiskState, Signal, Trade
+from persistence.models import Account, RiskState, Signal, Trade
 from tradovate.models import TradeSignal
 
 logger = logging.getLogger(__name__)
@@ -181,6 +181,15 @@ class TradeRepository:
             account_id, record.max_eod_balance,
         )
         return record.max_eod_balance
+
+    # ------------------------------------------------------------------ #
+    # Cuentas
+    # ------------------------------------------------------------------ #
+
+    def get_active_accounts(self, db: Session) -> list[Account]:
+        """Devuelve todas las cuentas con is_active=True, ordenadas por account_id."""
+        statement = select(Account).where(Account.is_active == True).order_by(Account.account_id)  # noqa: E712
+        return list(db.exec(statement).all())
 
     def save_risk_state(
         self,

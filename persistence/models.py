@@ -145,7 +145,7 @@ class Trade(SQLModel, table=True):
     account_id: str = Field(
         nullable=False,
         index=True,
-        description='Identificador de la cuenta. Coincide con ACCOUNT_ID del entorno.',
+        description='Identificador de la cuenta que origino esta operacion.',
     )
     signal_uid: Optional[str] = Field(
         default=None,
@@ -304,7 +304,7 @@ class RiskState(SQLModel, table=True):
 
     account_id: str = Field(
         primary_key=True,
-        description='Identificador unico de la cuenta. Coincide con ACCOUNT_ID del entorno.',
+        description='Identificador unico de la cuenta.',
     )
     max_eod_balance: float = Field(
         nullable=False,

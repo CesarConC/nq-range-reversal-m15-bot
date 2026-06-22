@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 
+from monitoring.logger import setup_logging
 from config.settings import TradovateConfig
 from tradovate.auth import TradovateAuth
 from tradovate.rest_client import TradovateRestClient
@@ -35,7 +36,7 @@ from persistence.models import Account
 from persistence.repository import TradeRepository
 from persistence.session import get_session
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+setup_logging()
 logger = logging.getLogger("run_paper")
 
 _RESTART_DELAY_SECONDS = 30

@@ -87,9 +87,6 @@ def load_config() -> TradovateConfig:
 # --------------------------------------------------------------------------- #
 
 class BotSettings(BaseSettings):
-    # --- Cuenta ---
-    ACCOUNT_ID: str = Field(default="default", env='ACCOUNT_ID')
-
     # --- Contrato ---
     SYMBOL: str = Field(default="MNQU6", env='SYMBOL')
     POINT_VALUE: float = Field(default=2.0, env='POINT_VALUE')          # USD/punto: MNQ=2.0, NQ=20.0
@@ -109,7 +106,6 @@ class BotSettings(BaseSettings):
     HEARTBEAT_INTERVAL: float = Field(default=2.5, env='HEARTBEAT_INTERVAL')  # segundos entre heartbeats
 
     # --- Persistencia ---
-    RISK_STATE_PATH: str = Field(default="risk_state.json", env='RISK_STATE_PATH')
     DB_PATH: str = Field(default="bot.db", env='DB_PATH')
     DATABASE_URL: str = Field(default="", env='DATABASE_URL')
 
@@ -125,3 +121,19 @@ class BotSettings(BaseSettings):
 
 
 bot_settings = BotSettings()
+
+
+# --------------------------------------------------------------------------- #
+# Registro de estrategias
+# --------------------------------------------------------------------------- #
+
+class StrategyRegistry:
+    """
+    Mapea nombre de estrategia → ruta completa de la clase (modulo.Clase).
+
+    Para registrar una nueva estrategia añade una entrada aqui;
+    no hace falta importar nada de strategy/ en este fichero.
+    """
+    REGISTRY: dict[str, str] = {
+        "range_reversal_m15": "strategy.my_strategy.MyStrategy",
+    }

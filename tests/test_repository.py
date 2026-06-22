@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-import persistence.base  # noqa: F401 — registra Signal, Trade y RiskState en metadata
+import persistence.base  # noqa: F401 — registra Signal, Trade, RiskState y Account en metadata
 from persistence.common import TradeStatus
-from persistence.models import Signal, Trade
+from persistence.models import Account, Signal, Trade
 from persistence.repository import TradeRepository
 from tradovate.models import TradeSignal
 
@@ -211,3 +211,52 @@ def test_risk_state_aislado_por_cuenta(repo, db):
     repo.save_risk_state("otra_cuenta", 55_000.0, db)
     assert repo.load_risk_state(ACCOUNT, 50_000.0, db) == 51_000.0
     assert repo.load_risk_state("otra_cuenta", 50_000.0, db) == 55_000.0
+
+
+# ------------------------------------------------------------------ #
+# Cuentas
+# ------------------------------------------------------------------ #
+
+def _make_account(account_id: str, is_active: bool = True) -> Account:
+    return Account(
+        account_id=account_id,
+        label=f"Cuenta {account_id}",
+        tradovate_env="demo",
+        secrets_key=f"/bot/{account_id}/tradovate",
+        username=f"user_{account_id}@test.com",
+        strategy="range_reversal_m15",
+        symbol="MNQU6",
+        point_value=2.0,
+        initial_balance=50_000.0,
+        max_drawdown=2_000.0,
+        profit_target=3_000.0,
+        consistency_pct=0.5,
+        max_contracts=1,
+        risk_pct=0.015,
+        is_active=is_active,
+    )
+
+
+def test_get_active_accounts_devuelve_solo_activas(repo, db):
+    db.add(_make_account("activa1"))
+    db.add(_make_account("activa2"))
+    db.add(_make_account("inactiva", is_active=False))
+    db.commit()
+
+    activas = repo.get_active_accounts(db)
+    assert len(activas) == 2
+    ids = {a.account_id for a in activas}
+    assert ids == {"activa1", "activa2"}
+
+
+def test_get_active_accounts_vacio(repo, db):
+    assert repo.get_active_accounts(db) == []
+
+
+def test_get_active_accounts_ordenadas_por_id(repo, db):
+    db.add(_make_account("zzz"))
+    db.add(_make_account("aaa"))
+    db.commit()
+
+    activas = repo.get_active_accounts(db)
+    assert [a.account_id for a in activas] == ["aaa", "zzz"]

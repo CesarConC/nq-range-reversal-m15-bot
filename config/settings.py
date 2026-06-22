@@ -87,6 +87,9 @@ def load_config() -> TradovateConfig:
 # --------------------------------------------------------------------------- #
 
 class BotSettings(BaseSettings):
+    # --- Cuenta ---
+    ACCOUNT_ID: str = Field(default="default", env='ACCOUNT_ID')
+
     # --- Contrato ---
     SYMBOL: str = Field(default="MNQU6", env='SYMBOL')
     POINT_VALUE: float = Field(default=2.0, env='POINT_VALUE')          # USD/punto: MNQ=2.0, NQ=20.0

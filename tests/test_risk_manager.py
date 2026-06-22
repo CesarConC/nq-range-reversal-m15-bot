@@ -1,7 +1,3 @@
-import json
-import tempfile
-from pathlib import Path
-
 from risk.risk_manager import RiskManager, FundedAccountRules
 
 
@@ -16,11 +12,8 @@ RULES = FundedAccountRules(
 )
 
 
-def rm(state_path=None):
-    """Crea un RiskManager sin persistencia (para no dejar archivos)."""
-    if state_path is None:
-        state_path = Path(tempfile.mktemp(suffix=".json"))
-    return RiskManager(RULES, state_path=state_path)
+def rm(max_eod_balance=None):
+    return RiskManager(RULES, max_eod_balance=max_eod_balance)
 
 
 # ------------------------------------------------------------------ #
@@ -66,13 +59,18 @@ def test_ejemplo_usuario_trailing_completo():
 
 
 def test_dia_negativo_no_mueve_limite():
-    """Si cierro un dia en negativo, el limite no se mueve y al dia
-    siguiente tengo menos de $2,000 de margen."""
     r = rm()
     r.end_of_day(51_000)  # gane -> limite sube a 49k
     r.end_of_day(50_200)  # perdi -> limite se queda en 49k
     assert r.trailing_loss_limit == 49_000
     assert 50_200 - r.trailing_loss_limit == 1_200  # solo $1,200 de margen
+
+
+def test_max_eod_balance_inicial_viene_del_parametro():
+    """max_eod_balance cargado desde DB se respeta en el arranque."""
+    r = rm(max_eod_balance=51_500)
+    assert r.max_eod_balance == 51_500
+    assert r.trailing_loss_limit == 49_500
 
 
 def test_bloquea_si_pnl_negativo_supera_drawdown():
@@ -150,7 +148,7 @@ def test_permite_anadir_long_a_long_existente():
         profit_target=3_000, consistency_pct=0.50,
         max_contracts=5, risk_pct=0.015, point_value=2.0,
     )
-    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r = RiskManager(rules)
     r.open_contracts = 2  # ya hay 2 longs
     allowed, _ = r.can_open_position(1, "LONG")
     assert allowed
@@ -171,22 +169,6 @@ def test_permite_si_sin_contratos_abiertos():
     r = rm()
     allowed, _ = r.can_open_position(1, "LONG")
     assert allowed
-
-
-# ------------------------------------------------------------------ #
-# Persistencia del estado
-# ------------------------------------------------------------------ #
-def test_estado_persiste_entre_sesiones():
-    path = Path(tempfile.mktemp(suffix=".json"))
-    try:
-        r1 = RiskManager(RULES, state_path=path)
-        r1.end_of_day(52_000)  # max_eod sube a 52k
-
-        r2 = RiskManager(RULES, state_path=path)  # nueva sesion
-        assert r2.max_eod_balance == 52_000
-        assert r2.trailing_loss_limit == 50_000
-    finally:
-        path.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------ #
@@ -229,7 +211,7 @@ def test_contratos_usa_reglas_con_max_mayor():
         profit_target=3_000, consistency_pct=0.50,
         max_contracts=10, risk_pct=0.015, point_value=2.0,
     )
-    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r = RiskManager(rules)
     # distancia SL = 50 puntos * $2 = $100/contrato; presupuesto = $750 -> 7 contratos
     assert r.calculate_contracts(21_000, 21_050) == 7
 
@@ -241,7 +223,7 @@ def test_contratos_pnl_positivo_amplia_presupuesto():
         profit_target=3_000, consistency_pct=0.50,
         max_contracts=20, risk_pct=0.015, point_value=2.0,
     )
-    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r = RiskManager(rules)
     r.daily_pnl = 300.0
     # presupuesto = 750 + 300 = 1050; rpc = 50 * 2 = 100 -> floor(1050/100) = 10
     assert r.calculate_contracts(21_000, 21_050) == 10
@@ -254,7 +236,7 @@ def test_contratos_pnl_negativo_no_reduce_presupuesto():
         profit_target=3_000, consistency_pct=0.50,
         max_contracts=20, risk_pct=0.015, point_value=2.0,
     )
-    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r = RiskManager(rules)
     r.daily_pnl = -500.0
     # presupuesto = 750 + max(0, -500) = 750; rpc = 100 -> 7
     assert r.calculate_contracts(21_000, 21_050) == 7
@@ -267,6 +249,6 @@ def test_contratos_sl_muy_lejos_devuelve_cero():
         profit_target=3_000, consistency_pct=0.50,
         max_contracts=5, risk_pct=0.015, point_value=20.0,  # NQ: $20/punto
     )
-    r = RiskManager(rules, state_path=Path(tempfile.mktemp(suffix=".json")))
+    r = RiskManager(rules)
     # presupuesto = $750; sl a 100 puntos * $20 = $2000/contrato -> floor(750/2000) = 0
     assert r.calculate_contracts(21_000, 21_100) == 0

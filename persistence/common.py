@@ -53,6 +53,14 @@ def normalize_optional_str(value: Optional[str]) -> Optional[str]:
     return value or None
 
 
+def validate_account_id(value: str) -> str:
+    """Exige que el account_id no este vacio."""
+    value = value.strip()
+    if not value:
+        raise ValueError('account_id cannot be blank')
+    return value
+
+
 def validate_symbol(value: str) -> str:
     """Elimina espacios y exige que el simbolo no este vacio."""
     value = value.strip()

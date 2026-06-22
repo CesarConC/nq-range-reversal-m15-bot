@@ -1,7 +1,5 @@
 import asyncio
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from core.engine import Engine
 from strategy.my_strategy import MyStrategy
@@ -31,10 +29,7 @@ def _permissive_rules():
 
 
 def _make_rm(rules=None):
-    return RiskManager(
-        rules or _permissive_rules(),
-        state_path=Path(tempfile.mktemp(suffix=".json")),
-    )
+    return RiskManager(rules or _permissive_rules())
 
 
 def _feed_short_setup(engine, t0):

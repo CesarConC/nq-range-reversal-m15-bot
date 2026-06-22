@@ -102,6 +102,9 @@ class BotSettings(BaseSettings):
     # --- Estrategia ---
     RR_RATIO: float = Field(default=0.33, env='RR_RATIO')               # reward = 0.33 * risk
 
+    # --- Logging ---
+    LOG_FORMAT: str = Field(default="text", env='LOG_FORMAT')  # "text" en local, "json" en AWS
+
     # --- WebSocket ---
     HEARTBEAT_INTERVAL: float = Field(default=2.5, env='HEARTBEAT_INTERVAL')  # segundos entre heartbeats
 

@@ -27,7 +27,7 @@ from tradovate.rest_client import TradovateRestClient
 from market_data.feed import MarketDataFeed
 from account_data.user_socket import UserDataSocket
 from core.engine import Engine
-from strategy.my_strategy import MyStrategy
+from strategy.registry import build_strategy
 from risk.risk_manager import FundedAccountRules, RiskManager
 from execution.order_manager import OrderManager
 from persistence.init_db import create_db_and_tables
@@ -106,7 +106,7 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
         )
     risk_manager = RiskManager(rules, max_eod_balance=max_eod_balance)
 
-    strategy = MyStrategy()
+    strategy = build_strategy(account.strategy)
     engine = Engine(
         strategy=strategy,
         symbol=account.symbol,

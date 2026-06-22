@@ -224,6 +224,7 @@ def _make_account(account_id: str, is_active: bool = True) -> Account:
         tradovate_env="demo",
         secrets_key=f"/bot/{account_id}/tradovate",
         username=f"user_{account_id}@test.com",
+        strategy="range_reversal_m15",
         symbol="MNQU6",
         point_value=2.0,
         initial_balance=50_000.0,

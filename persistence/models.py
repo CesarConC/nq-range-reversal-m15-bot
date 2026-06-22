@@ -364,6 +364,10 @@ class Account(SQLModel, table=True):
         nullable=False,
         description='Nombre de usuario de Tradovate (email o login). No es sensible; la contrasena y credenciales API estan en Secrets Manager.',
     )
+    strategy: str = Field(
+        nullable=False,
+        description='Clave del registro de estrategias, ej. "range_reversal_m15". Debe existir en strategy/registry.py.',
+    )
     symbol: str = Field(
         nullable=False,
         description='Contrato activo a operar, ej. "MNQU6".',
@@ -437,6 +441,11 @@ class Account(SQLModel, table=True):
     @classmethod
     def _validate_username(cls, v: str) -> str:
         return validate_non_blank_str(v, 'username')
+
+    @field_validator('strategy')
+    @classmethod
+    def _validate_strategy(cls, v: str) -> str:
+        return validate_non_blank_str(v, 'strategy')
 
     @field_validator('symbol')
     @classmethod

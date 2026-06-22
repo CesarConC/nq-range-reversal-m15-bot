@@ -125,3 +125,19 @@ class BotSettings(BaseSettings):
 
 
 bot_settings = BotSettings()
+
+
+# --------------------------------------------------------------------------- #
+# Registro de estrategias
+# --------------------------------------------------------------------------- #
+
+class StrategyRegistry:
+    """
+    Mapea nombre de estrategia → ruta completa de la clase (modulo.Clase).
+
+    Para registrar una nueva estrategia añade una entrada aqui;
+    no hace falta importar nada de strategy/ en este fichero.
+    """
+    REGISTRY: dict[str, str] = {
+        "range_reversal_m15": "strategy.my_strategy.MyStrategy",
+    }

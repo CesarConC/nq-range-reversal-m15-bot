@@ -4,11 +4,13 @@ from datetime import datetime, timezone
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-import persistence.base  # noqa: F401 — registra Signal y Trade en metadata
+import persistence.base  # noqa: F401 — registra Signal, Trade y RiskState en metadata
 from persistence.common import TradeStatus
 from persistence.models import Signal, Trade
 from persistence.repository import TradeRepository
 from tradovate.models import TradeSignal
+
+ACCOUNT = "test_account"
 
 
 @pytest.fixture
@@ -77,9 +79,8 @@ def test_save_signal_uids_unicos(repo, db):
 
 def test_open_trade_devuelve_uid(repo, db):
     uid = repo.open_trade(
-        symbol="MNQU6", direction="LONG", qty=1,
-        entry_price=21_000.0, db=db,
-        tp=21_100.0, sl=20_950.0,
+        account_id=ACCOUNT, symbol="MNQU6", direction="LONG", qty=1,
+        entry_price=21_000.0, db=db, tp=21_100.0, sl=20_950.0,
     )
     assert isinstance(uid, str)
     assert len(uid) == 36
@@ -87,11 +88,11 @@ def test_open_trade_devuelve_uid(repo, db):
 
 def test_open_trade_persiste_campos(repo, db):
     uid = repo.open_trade(
-        symbol="MNQU6", direction="LONG", qty=2,
-        entry_price=21_000.0, db=db,
-        tp=21_100.0, sl=20_950.0,
+        account_id=ACCOUNT, symbol="MNQU6", direction="LONG", qty=2,
+        entry_price=21_000.0, db=db, tp=21_100.0, sl=20_950.0,
     )
     row = db.get(Trade, uid)
+    assert row.account_id == ACCOUNT
     assert row.symbol == "MNQU6"
     assert row.direction == "LONG"
     assert row.qty == 2
@@ -101,7 +102,7 @@ def test_open_trade_persiste_campos(repo, db):
 
 def test_close_trade_actualiza_fila(repo, db):
     uid = repo.open_trade(
-        symbol="MNQU6", direction="LONG", qty=1,
+        account_id=ACCOUNT, symbol="MNQU6", direction="LONG", qty=1,
         entry_price=21_000.0, db=db,
     )
     repo.close_trade(trade_uid=uid, exit_price=21_080.0, db=db, pnl=160.0, exit_reason="TP")
@@ -115,7 +116,7 @@ def test_close_trade_actualiza_fila(repo, db):
 
 def test_close_trade_sin_razon(repo, db):
     uid = repo.open_trade(
-        symbol="MNQU6", direction="SHORT", qty=1,
+        account_id=ACCOUNT, symbol="MNQU6", direction="SHORT", qty=1,
         entry_price=21_000.0, db=db,
     )
     repo.close_trade(trade_uid=uid, exit_price=20_900.0, db=db, pnl=200.0)
@@ -136,41 +137,77 @@ def test_close_trade_uid_inexistente_no_explota(repo, db):
 def test_trade_enlazado_a_signal(repo, db):
     signal_uid = repo.save_signal("MNQU6", _signal(), _ts(), db)
     trade_uid = repo.open_trade(
-        symbol="MNQU6", direction="LONG", qty=1,
-        entry_price=21_000.0, db=db,
-        signal_uid=signal_uid,
+        account_id=ACCOUNT, symbol="MNQU6", direction="LONG", qty=1,
+        entry_price=21_000.0, db=db, signal_uid=signal_uid,
     )
     row = db.get(Trade, trade_uid)
     assert row.signal_uid == signal_uid
 
 
 # ------------------------------------------------------------------ #
-# Consultas
+# Consultas filtradas por account_id
 # ------------------------------------------------------------------ #
 
 def test_get_open_trades_devuelve_solo_abiertas(repo, db):
-    t1 = repo.open_trade("MNQU6", "LONG", 1, 21_000.0, db)
-    t2 = repo.open_trade("MNQU6", "SHORT", 1, 21_200.0, db)
+    t1 = repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    t2 = repo.open_trade(ACCOUNT, "MNQU6", "SHORT", 1, 21_200.0, db)
     repo.close_trade(t1, 21_100.0, db, pnl=200.0)
 
-    abiertas = repo.get_open_trades(db)
+    abiertas = repo.get_open_trades(ACCOUNT, db)
     assert len(abiertas) == 1
     assert abiertas[0]["uid"] == t2
 
 
 def test_get_open_trades_vacio(repo, db):
-    assert repo.get_open_trades(db) == []
+    assert repo.get_open_trades(ACCOUNT, db) == []
+
+
+def test_get_open_trades_aisladas_por_cuenta(repo, db):
+    """Trades de otra cuenta no aparecen en los resultados."""
+    repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    repo.open_trade("otra_cuenta", "MNQU6", "LONG", 1, 21_000.0, db)
+    assert len(repo.get_open_trades(ACCOUNT, db)) == 1
 
 
 def test_get_trades_devuelve_todas(repo, db):
-    repo.open_trade("MNQU6", "LONG", 1, 21_000.0, db)
-    repo.open_trade("MNQU6", "LONG", 1, 21_100.0, db)
-    assert len(repo.get_trades(db)) == 2
+    repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_100.0, db)
+    assert len(repo.get_trades(ACCOUNT, db)) == 2
 
 
 def test_get_trades_filtro_symbol(repo, db):
-    repo.open_trade("MNQU6", "LONG", 1, 21_000.0, db)
-    repo.open_trade("NQU6", "LONG", 1, 21_000.0, db)
-    trades = repo.get_trades(db, symbol="MNQU6")
+    repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    repo.open_trade(ACCOUNT, "NQU6", "LONG", 1, 21_000.0, db)
+    trades = repo.get_trades(ACCOUNT, db, symbol="MNQU6")
     assert len(trades) == 1
     assert trades[0]["symbol"] == "MNQU6"
+
+
+# ------------------------------------------------------------------ #
+# Estado de riesgo
+# ------------------------------------------------------------------ #
+
+def test_load_risk_state_sin_registro_devuelve_inicial(repo, db):
+    balance = repo.load_risk_state(ACCOUNT, 50_000.0, db)
+    assert balance == 50_000.0
+
+
+def test_save_y_load_risk_state(repo, db):
+    repo.save_risk_state(ACCOUNT, 51_500.0, db)
+    balance = repo.load_risk_state(ACCOUNT, 50_000.0, db)
+    assert balance == 51_500.0
+
+
+def test_save_risk_state_upsert(repo, db):
+    """Guardar dos veces actualiza en lugar de insertar una fila nueva."""
+    repo.save_risk_state(ACCOUNT, 51_000.0, db)
+    repo.save_risk_state(ACCOUNT, 52_000.0, db)
+    balance = repo.load_risk_state(ACCOUNT, 50_000.0, db)
+    assert balance == 52_000.0
+
+
+def test_risk_state_aislado_por_cuenta(repo, db):
+    repo.save_risk_state(ACCOUNT, 51_000.0, db)
+    repo.save_risk_state("otra_cuenta", 55_000.0, db)
+    assert repo.load_risk_state(ACCOUNT, 50_000.0, db) == 51_000.0
+    assert repo.load_risk_state("otra_cuenta", 50_000.0, db) == 55_000.0

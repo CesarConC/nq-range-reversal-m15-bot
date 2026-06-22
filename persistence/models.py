@@ -13,6 +13,7 @@ from persistence.common import (
     ensure_tz_aware,
     generate_uid,
     now_utc,
+    validate_account_id,
     validate_direction,
     validate_positive_float,
     validate_symbol,
@@ -140,6 +141,11 @@ class Trade(SQLModel, table=True):
         index=True,
         description='Identificador unico de la operacion (UUID4).',
     )
+    account_id: str = Field(
+        nullable=False,
+        index=True,
+        description='Identificador de la cuenta. Coincide con ACCOUNT_ID del entorno.',
+    )
     signal_uid: Optional[str] = Field(
         default=None,
         foreign_key='signal.uid',
@@ -211,6 +217,11 @@ class Trade(SQLModel, table=True):
     def _validate_uid(cls, v: str) -> str:
         return validate_uuid_str(v, 'uid')
 
+    @field_validator('account_id')
+    @classmethod
+    def _validate_account_id(cls, v: str) -> str:
+        return validate_account_id(v)
+
     @field_validator('signal_uid')
     @classmethod
     def _validate_signal_uid(cls, v: Optional[str]) -> Optional[str]:
@@ -280,3 +291,41 @@ class Trade(SQLModel, table=True):
             if self.exit_ts is not None and self.exit_ts < self.entry_ts:
                 raise ValueError('exit_ts no puede ser anterior a entry_ts')
         return self
+
+
+class RiskState(SQLModel, table=True):
+    """
+    Una fila por cuenta. Persiste max_eod_balance entre sesiones del bot,
+    reemplazando el antiguo risk_state.json. Se actualiza al final de cada
+    dia de trading via TradeRepository.save_risk_state().
+    """
+    __tablename__ = 'risk_state'
+
+    account_id: str = Field(
+        primary_key=True,
+        description='Identificador unico de la cuenta. Coincide con ACCOUNT_ID del entorno.',
+    )
+    max_eod_balance: float = Field(
+        nullable=False,
+        description='Balance maximo EOD alcanzado historicamente. Base del trailing drawdown.',
+    )
+    updated_at: datetime = Field(
+        default_factory=now_utc,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+        description='Timestamp UTC de la ultima actualizacion.',
+    )
+
+    @field_validator('account_id')
+    @classmethod
+    def _validate_account_id(cls, v: str) -> str:
+        return validate_account_id(v)
+
+    @field_validator('max_eod_balance')
+    @classmethod
+    def _validate_max_eod_balance(cls, v: float) -> float:
+        return validate_positive_float(v, 'max_eod_balance')
+
+    @field_validator('updated_at')
+    @classmethod
+    def _ensure_tz_aware_updated_at(cls, v: datetime) -> datetime:
+        return ensure_tz_aware(v)

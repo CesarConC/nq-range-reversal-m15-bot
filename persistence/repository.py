@@ -7,7 +7,7 @@ El llamante es responsable de abrir y cerrar la sesion:
     from persistence.session import get_session
 
     with get_session() as db:
-        trade_repo.save_signal(symbol, signal, ts, db)
+        trade_repo.save_signal(account_id, symbol, signal, ts, db)
 """
 import logging
 from datetime import datetime
@@ -16,7 +16,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from persistence.common import TradeStatus, now_utc
-from persistence.models import Signal, Trade
+from persistence.models import RiskState, Signal, Trade
 from tradovate.models import TradeSignal
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ class TradeRepository:
 
     def open_trade(
         self,
+        account_id: str,
         symbol: str,
         direction: str,
         qty: int,
@@ -79,6 +80,7 @@ class TradeRepository:
     ) -> str:
         """Registra la apertura de una operacion y devuelve su uid."""
         record = Trade(
+            account_id=account_id,
             signal_uid=signal_uid,
             symbol=symbol,
             direction=direction,
@@ -92,8 +94,8 @@ class TradeRepository:
         db.commit()
         db.refresh(record)
         logger.info(
-            "Trade abierto [uid=%s]: %s %s x%d @ %.2f tp=%s sl=%s",
-            record.uid, symbol, direction, qty, entry_price,
+            "Trade abierto [uid=%s] account=%s: %s %s x%d @ %.2f tp=%s sl=%s",
+            record.uid, account_id, symbol, direction, qty, entry_price,
             f"{tp:.2f}" if tp else "—", f"{sl:.2f}" if sl else "—",
         )
         return record.uid
@@ -128,21 +130,74 @@ class TradeRepository:
     # Consultas
     # ------------------------------------------------------------------ #
 
-    def get_open_trades(self, db: Session) -> list[dict]:
-        """Devuelve todas las operaciones con status OPEN."""
-        statement = select(Trade).where(Trade.status == TradeStatus.OPEN)
+    def get_open_trades(self, account_id: str, db: Session) -> list[dict]:
+        """Devuelve todas las operaciones abiertas de la cuenta."""
+        statement = (
+            select(Trade)
+            .where(Trade.account_id == account_id, Trade.status == TradeStatus.OPEN)
+        )
         rows = db.exec(statement).all()
         return [r.model_dump() for r in rows]
 
     def get_trades(
         self,
+        account_id: str,
         db: Session,
         symbol: Optional[str] = None,
         limit: int = 100,
     ) -> list[dict]:
-        """Devuelve las ultimas operaciones, opcionalmente filtradas por simbolo."""
-        statement = select(Trade).order_by(Trade.uid.desc()).limit(limit)
+        """Devuelve las ultimas operaciones de la cuenta, opcionalmente filtradas por simbolo."""
+        statement = (
+            select(Trade)
+            .where(Trade.account_id == account_id)
+            .order_by(Trade.uid.desc())
+            .limit(limit)
+        )
         if symbol:
             statement = statement.where(Trade.symbol == symbol)
         rows = db.exec(statement).all()
         return [r.model_dump() for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # Estado de riesgo (sustituye a risk_state.json)
+    # ------------------------------------------------------------------ #
+
+    def load_risk_state(
+        self,
+        account_id: str,
+        initial_balance: float,
+        db: Session,
+    ) -> float:
+        """Devuelve max_eod_balance de la cuenta. Si no existe registro, devuelve initial_balance."""
+        record = db.get(RiskState, account_id)
+        if record is None:
+            logger.info(
+                "Sin estado de riesgo previo para account=%s. max_eod_balance=%.2f (balance inicial)",
+                account_id, initial_balance,
+            )
+            return initial_balance
+        logger.info(
+            "Estado de riesgo cargado: account=%s max_eod_balance=%.2f",
+            account_id, record.max_eod_balance,
+        )
+        return record.max_eod_balance
+
+    def save_risk_state(
+        self,
+        account_id: str,
+        max_eod_balance: float,
+        db: Session,
+    ) -> None:
+        """Upsert de max_eod_balance para la cuenta. Llamar tras end_of_day()."""
+        record = db.get(RiskState, account_id)
+        if record is None:
+            record = RiskState(account_id=account_id, max_eod_balance=max_eod_balance)
+        else:
+            record.max_eod_balance = max_eod_balance
+            record.updated_at = now_utc()
+        db.add(record)
+        db.commit()
+        logger.info(
+            "Estado de riesgo guardado: account=%s max_eod_balance=%.2f",
+            account_id, max_eod_balance,
+        )

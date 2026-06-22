@@ -49,6 +49,7 @@ class Engine:
         self,
         strategy: BaseStrategy,
         symbol: str = "",
+        account_id: str = "default",
         risk_manager=None,
         order_manager=None,
         trade_repo=None,
@@ -57,6 +58,7 @@ class Engine:
     ):
         self.strategy = strategy
         self.symbol = symbol
+        self.account_id = account_id
         self.risk_manager = risk_manager
         self.order_manager = order_manager
         self.trade_repo = trade_repo
@@ -203,6 +205,7 @@ class Engine:
             direction = "LONG" if position_after > 0 else "SHORT"
             with get_session() as db:
                 self._open_trade_uid = self.trade_repo.open_trade(
+                    account_id=self.account_id,
                     symbol=self.symbol,
                     direction=direction,
                     qty=abs(position_after),

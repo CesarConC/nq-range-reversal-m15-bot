@@ -29,6 +29,7 @@ from risk.risk_manager import RiskManager
 from execution.order_manager import OrderManager
 from persistence.init_db import create_db_and_tables
 from persistence.repository import TradeRepository
+from persistence.session import get_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("run_paper")
@@ -54,17 +55,23 @@ async def main():
     order_manager = OrderManager(rest_client, device_id=config.device_id)
     await order_manager.initialize()
 
-    # --- Risk manager con las reglas reales de la cuenta fondeada ---
-    risk_manager = RiskManager(funded_account_rules)
-
-    # --- Persistencia: guarda señales y operaciones en SQLite ---
+    # --- Persistencia: guarda señales y operaciones en la DB ---
     trade_repo = TradeRepository()
+    account_id = bot_settings.ACCOUNT_ID
+
+    # --- Risk manager: carga max_eod_balance desde DB ---
+    with get_session() as db:
+        max_eod_balance = trade_repo.load_risk_state(
+            account_id, funded_account_rules.initial_balance, db
+        )
+    risk_manager = RiskManager(funded_account_rules, max_eod_balance=max_eod_balance)
 
     # --- Estrategia + engine, ya con riesgo, ejecucion y persistencia ---
     strategy = MyStrategy()
     engine = Engine(
         strategy=strategy,
         symbol=bot_settings.SYMBOL,
+        account_id=account_id,
         risk_manager=risk_manager,
         order_manager=order_manager,
         trade_repo=trade_repo,

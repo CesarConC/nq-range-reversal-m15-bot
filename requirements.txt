@@ -7,3 +7,4 @@ sqlmodel>=0.0.21
 alembic>=1.13
 python-json-logger>=2.0
 psycopg2-binary>=2.9       # driver PostgreSQL para RDS en AWS
+boto3>=1.34                # AWS SDK: Secrets Manager, ECR, etc.

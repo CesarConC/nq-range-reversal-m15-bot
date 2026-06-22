@@ -10,7 +10,7 @@ El llamante es responsable de abrir y cerrar la sesion:
         trade_repo.save_signal(account_id, symbol, signal, ts, db)
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -185,6 +185,28 @@ class TradeRepository:
     # ------------------------------------------------------------------ #
     # Cuentas
     # ------------------------------------------------------------------ #
+
+    def get_daily_pnl(self, account_id: str, db: Session) -> float:
+        """Suma del PnL de las operaciones cerradas desde medianoche UTC de hoy.
+
+        Usada al reiniciar el bot para restaurar daily_pnl en RiskManager.
+        Devuelve 0.0 si no hay trades cerrados hoy.
+        """
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        statement = select(Trade).where(
+            Trade.account_id == account_id,
+            Trade.status == TradeStatus.CLOSED,
+            Trade.exit_ts >= today_start,
+        )
+        trades = db.exec(statement).all()
+        pnl = sum(t.pnl for t in trades if t.pnl is not None)
+        logger.info(
+            "PnL del dia restaurado: account=%s daily_pnl=%.2f (%d trade(s) cerrado(s) hoy)",
+            account_id, pnl, len(trades),
+        )
+        return pnl
 
     def get_active_accounts(self, db: Session) -> list[Account]:
         """Devuelve todas las cuentas con is_active=True, ordenadas por account_id."""

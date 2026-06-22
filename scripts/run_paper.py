@@ -20,14 +20,16 @@ Uso:
 import asyncio
 import logging
 import os
+import signal
 
 from monitoring.logger import setup_logging
-from config.settings import TradovateConfig
+from config.settings import TradovateConfig, bot_settings
 from tradovate.auth import TradovateAuth
 from tradovate.rest_client import TradovateRestClient
 from market_data.feed import MarketDataFeed
 from account_data.user_socket import UserDataSocket
 from core.engine import Engine
+from core.reconciler import reconcile
 from strategy.registry import build_strategy
 from risk.risk_manager import FundedAccountRules, RiskManager
 from execution.order_manager import OrderManager
@@ -39,23 +41,57 @@ from persistence.session import get_session
 setup_logging()
 logger = logging.getLogger("run_paper")
 
-_RESTART_DELAY_SECONDS = 30
-
 
 def _load_credentials(account: Account) -> TradovateConfig:
     """
     Carga las credenciales de Tradovate para la cuenta.
 
-    Local/dev: lee las variables TRADOVATE_* del entorno (.env).
-               El campo account.secrets_key se ignora.
+    Hay dos modos de operacion controlados por la variable USE_SECRETS_MANAGER:
 
-    AWS:       sustituir el cuerpo por una llamada a Secrets Manager:
-               import boto3
-               secret = boto3.client('secretsmanager').get_secret_value(
-                   SecretId=account.secrets_key)['SecretString']
-               data = json.loads(secret)
-               return TradovateConfig(environment=account.tradovate_env, **data)
+      USE_SECRETS_MANAGER=false  (defecto)
+        Lee TRADOVATE_PASSWORD, TRADOVATE_CID y TRADOVATE_SECRET del entorno.
+        Util en local/dev con un .env. account.secrets_key se ignora.
+
+      USE_SECRETS_MANAGER=true
+        Lee las credenciales del secreto en AWS Secrets Manager referenciado
+        por account.secrets_key. Las vars TRADOVATE_* del entorno se ignoran.
+        El secreto debe ser un JSON con esta estructura:
+          {
+            "password":    "...",
+            "cid":         "...",
+            "secret":      "...",
+            "app_id":      "MyTradingBot",   (opcional)
+            "app_version": "1.0",            (opcional)
+            "device_id":   "bot-device-001"  (opcional)
+          }
+        El campo 'username' no va en el secreto: se lee de account.username.
     """
+    # ------------------------------------------------------------------ #
+    # AWS Secrets Manager
+    # Descomentar en produccion y asegurarse de que el Task Role de ECS
+    # tiene el permiso secretsmanager:GetSecretValue sobre los secretos.
+    # ------------------------------------------------------------------ #
+    # if os.getenv("USE_SECRETS_MANAGER", "false").lower() == "true":
+    #     import json
+    #     import boto3
+    #     region = os.getenv("AWS_REGION", "eu-west-1")
+    #     client = boto3.client("secretsmanager", region_name=region)
+    #     raw = client.get_secret_value(SecretId=account.secrets_key)["SecretString"]
+    #     creds = json.loads(raw)
+    #     return TradovateConfig(
+    #         environment=account.tradovate_env,
+    #         username=account.username,
+    #         password=creds["password"],
+    #         app_id=creds.get("app_id", "MyTradingBot"),
+    #         app_version=creds.get("app_version", "1.0"),
+    #         cid=creds["cid"],
+    #         secret=creds["secret"],
+    #         device_id=creds.get("device_id", "bot-device-001"),
+    #     )
+
+    # ------------------------------------------------------------------ #
+    # Local / dev: variables de entorno del .env
+    # ------------------------------------------------------------------ #
     required = ["TRADOVATE_PASSWORD", "TRADOVATE_CID", "TRADOVATE_SECRET"]
     missing = [k for k in required if not os.getenv(k)]
     if missing:
@@ -102,10 +138,32 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
     )
 
     with get_session() as db:
-        max_eod_balance = trade_repo.load_risk_state(
-            account.account_id, rules.initial_balance, db
+        max_eod_balance = trade_repo.load_risk_state(account.account_id, rules.initial_balance, db)
+        daily_pnl      = trade_repo.get_daily_pnl(account.account_id, db)
+        open_trades    = trade_repo.get_open_trades(account.account_id, db)
+
+    open_contracts = sum(
+        t["qty"] if t["direction"] == "LONG" else -t["qty"]
+        for t in open_trades
+    )
+
+    if open_trades:
+        log.warning(
+            "Estado restaurado con posicion(es) abierta(s): open_contracts=%d, daily_pnl=%.2f — "
+            "verificar en Tradovate que el estado del broker coincide con la DB.",
+            open_contracts, daily_pnl,
         )
-    risk_manager = RiskManager(rules, max_eod_balance=max_eod_balance)
+    else:
+        log.info("Estado restaurado: sin posiciones abiertas, daily_pnl=%.2f", daily_pnl)
+
+    risk_manager = RiskManager(
+        rules,
+        max_eod_balance=max_eod_balance,
+        daily_pnl=daily_pnl,
+        open_contracts=open_contracts,
+    )
+
+    await reconcile(account, rest_client, trade_repo, risk_manager)
 
     strategy = build_strategy(account.strategy)
     engine = Engine(
@@ -142,27 +200,50 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
         risk_manager.trailing_loss_limit, risk_manager.max_daily_profit,
     )
 
-    await asyncio.Future()  # corre indefinidamente hasta Ctrl+C o excepcion
+    await asyncio.Future()  # corre indefinidamente hasta cancelacion
+
+
+def _log_open_positions(account: Account, trade_repo: TradeRepository, log: logging.Logger) -> None:
+    """Consulta y loguea las posiciones abiertas de la cuenta al hacer shutdown."""
+    try:
+        with get_session() as db:
+            open_trades = trade_repo.get_open_trades(account.account_id, db)
+        if open_trades:
+            resumen = [
+                {"uid": t["uid"], "symbol": t["symbol"],
+                 "direction": t["direction"], "qty": t["qty"]}
+                for t in open_trades
+            ]
+            log.warning(
+                "SHUTDOWN: %d posicion(es) abierta(s) en cuenta %s — revisar en Tradovate: %s",
+                len(open_trades), account.account_id, resumen,
+            )
+        else:
+            log.info("SHUTDOWN: sin posiciones abiertas en cuenta %s.", account.account_id)
+    except Exception:
+        log.exception("SHUTDOWN: no se pudo consultar posiciones abiertas de cuenta %s.", account.account_id)
 
 
 async def run_account(account: Account, trade_repo: TradeRepository) -> None:
     """
     Mantiene el bot de una cuenta en marcha. Si falla, espera
-    _RESTART_DELAY_SECONDS y vuelve a intentarlo.
+    bot_settings.RESTART_DELAY_SECONDS y vuelve a intentarlo.
+    Al recibir CancelledError (shutdown), loguea posiciones abiertas y termina.
     """
     log = logging.getLogger(f"account.{account.account_id}")
     while True:
         try:
             await _run_account_once(account, trade_repo)
         except asyncio.CancelledError:
-            log.info("Detenido.")
-            return
+            _log_open_positions(account, trade_repo, log)
+            log.info("Cuenta %s detenida limpiamente.", account.account_id)
+            raise  # propaga la cancelacion para que asyncio.gather termine
         except Exception:
             log.exception(
                 "Error inesperado. Reintentando en %d segundos...",
-                _RESTART_DELAY_SECONDS,
+                bot_settings.RESTART_DELAY_SECONDS,
             )
-            await asyncio.sleep(_RESTART_DELAY_SECONDS)
+            await asyncio.sleep(bot_settings.RESTART_DELAY_SECONDS)
 
 
 async def main() -> None:
@@ -186,7 +267,21 @@ async def main() -> None:
         [a.account_id for a in accounts],
     )
 
-    await asyncio.gather(*[run_account(a, trade_repo) for a in accounts])
+    gather_task = asyncio.gather(*[run_account(a, trade_repo) for a in accounts])
+
+    loop = asyncio.get_running_loop()
+
+    def _handle_shutdown(sig: signal.Signals) -> None:
+        logger.info("Señal %s recibida. Iniciando shutdown graceful...", sig.name)
+        gather_task.cancel()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_shutdown, sig)
+
+    try:
+        await gather_task
+    except asyncio.CancelledError:
+        logger.info("Bot detenido correctamente.")
 
 
 if __name__ == "__main__":

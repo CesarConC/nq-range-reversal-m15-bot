@@ -65,6 +65,8 @@ class RiskManager:
         self,
         rules: FundedAccountRules,
         max_eod_balance: Optional[float] = None,
+        daily_pnl: float = 0.0,
+        open_contracts: int = 0,
     ):
         self.rules = rules
 
@@ -73,13 +75,15 @@ class RiskManager:
             max_eod_balance if max_eod_balance is not None else rules.initial_balance
         )
 
-        # Estado intraday (se resetea cada dia)
-        self.daily_pnl: float = 0.0
-        self.open_contracts: int = 0
+        # Estado intraday: restaurado desde DB al reiniciar, reseteado en end_of_day()
+        self.daily_pnl: float = daily_pnl
+        self.open_contracts: int = open_contracts
 
         logger.info(
-            "RiskManager inicializado: max_eod_balance=%.2f trailing_loss_limit=%.2f",
+            "RiskManager inicializado: max_eod_balance=%.2f trailing_loss_limit=%.2f "
+            "daily_pnl=%.2f open_contracts=%d",
             self.max_eod_balance, self.trailing_loss_limit,
+            self.daily_pnl, self.open_contracts,
         )
 
     # ------------------------------------------------------------------ #

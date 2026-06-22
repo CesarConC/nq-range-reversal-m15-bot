@@ -260,3 +260,45 @@ def test_get_active_accounts_ordenadas_por_id(repo, db):
 
     activas = repo.get_active_accounts(db)
     assert [a.account_id for a in activas] == ["aaa", "zzz"]
+
+
+# ------------------------------------------------------------------ #
+# PnL diario
+# ------------------------------------------------------------------ #
+
+def _open_and_close(repo, db, pnl: float, exit_ts: datetime) -> None:
+    """Abre y cierra un trade con el PnL y exit_ts indicados."""
+    uid = repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    repo.close_trade(uid, 21_050.0, db, exit_ts=exit_ts, pnl=pnl)
+
+
+def test_get_daily_pnl_sin_trades_devuelve_cero(repo, db):
+    assert repo.get_daily_pnl(ACCOUNT, db) == 0.0
+
+
+def test_get_daily_pnl_suma_trades_cerrados_hoy(repo, db):
+    ahora = datetime.now(timezone.utc)
+    _open_and_close(repo, db, pnl=100.0, exit_ts=ahora)
+    _open_and_close(repo, db, pnl=-40.0, exit_ts=ahora)
+    assert repo.get_daily_pnl(ACCOUNT, db) == pytest.approx(60.0)
+
+
+def test_get_daily_pnl_ignora_trades_de_ayer(repo, db):
+    from datetime import timedelta
+    ayer = datetime.now(timezone.utc) - timedelta(days=1)
+    ahora = datetime.now(timezone.utc)
+    _open_and_close(repo, db, pnl=500.0, exit_ts=ayer)   # no debe contar
+    _open_and_close(repo, db, pnl=200.0, exit_ts=ahora)  # debe contar
+    assert repo.get_daily_pnl(ACCOUNT, db) == pytest.approx(200.0)
+
+
+def test_get_daily_pnl_aislado_por_cuenta(repo, db):
+    ahora = datetime.now(timezone.utc)
+    uid = repo.open_trade("otra_cuenta", "MNQU6", "LONG", 1, 21_000.0, db)
+    repo.close_trade(uid, 21_050.0, db, exit_ts=ahora, pnl=300.0)
+    assert repo.get_daily_pnl(ACCOUNT, db) == 0.0
+
+
+def test_get_daily_pnl_ignora_trades_abiertos(repo, db):
+    repo.open_trade(ACCOUNT, "MNQU6", "LONG", 1, 21_000.0, db)
+    assert repo.get_daily_pnl(ACCOUNT, db) == 0.0

@@ -54,3 +54,22 @@ class TradovateRestClient:
         """Devuelve las cuentas asociadas al usuario autenticado (necesario
         para saber el accountId/accountSpec a usar al mandar ordenes)."""
         return await self.get("/account/list")
+
+    async def get_positions(self) -> list[dict]:
+        """Devuelve todas las posiciones abiertas del usuario autenticado.
+
+        Cada elemento incluye al menos:
+          contractId  — ID numerico del contrato
+          netPos      — contratos netos: positivo=LONG, negativo=SHORT, 0=plano
+          netPrice    — precio medio de la posicion abierta
+        """
+        return await self.get("/position/list")
+
+    async def get_fills(self) -> list[dict]:
+        """Devuelve el historial de fills del usuario autenticado.
+
+        Util para buscar el fill de cierre de un trade que se cerro en el
+        broker sin que el bot recibiese el evento por WebSocket.
+        Cada elemento incluye: orderId, contractId, price, qty, side, timestamp.
+        """
+        return await self.get("/fill/list")

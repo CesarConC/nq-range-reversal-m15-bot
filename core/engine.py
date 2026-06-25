@@ -76,6 +76,14 @@ class Engine:
         self._m1_agg = CandleAggregator(1, on_candle_close=self._on_m1_close)
         self._m15_agg = CandleAggregator(15, on_candle_close=self._on_m15_close)
 
+    def seed_m15_bar(self, candle) -> None:
+        """Pre-carga la vela M15 parcial actual en el aggregator.
+
+        Llamar una vez al arrancar, despues de obtener el bar historico del broker
+        via REST y antes de conectar el WebSocket de market data.
+        """
+        self._m15_agg.seed(candle)
+
     # ------------------------------------------------------------------ #
     # Entrada: quotes -> velas -> estrategia
     # ------------------------------------------------------------------ #

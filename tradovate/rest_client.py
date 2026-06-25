@@ -54,3 +54,45 @@ class TradovateRestClient:
         """Devuelve las cuentas asociadas al usuario autenticado (necesario
         para saber el accountId/accountSpec a usar al mandar ordenes)."""
         return await self.get("/account/list")
+
+    async def get_chart_bars(self, symbol: str, timeframe_minutes: int, n_bars: int = 2) -> list[dict]:
+        """Obtiene los ultimos n_bars de velas del timeframe indicado.
+
+        Pide 2 barras por defecto porque algunos brokers incluyen la barra
+        actual (incompleta) como ultimo elemento junto a la ultima completa.
+        Devuelve la lista de bars tal como la devuelve Tradovate; cada elemento
+        contiene al menos: timestamp, open, high, low, close.
+        """
+        body = {
+            "symbol": symbol,
+            "chartDescription": {
+                "underlyingType": "MinuteBar",
+                "elementSize": timeframe_minutes,
+                "elementSizeUnit": "UnderlyingUnits",
+                "withHistogram": False,
+            },
+            "timeRange": {
+                "asMuchAsElements": n_bars,
+            },
+        }
+        response = await self.post("/md/getChart", body)
+        return response.get("bars", [])
+
+    async def get_positions(self) -> list[dict]:
+        """Devuelve todas las posiciones abiertas del usuario autenticado.
+
+        Cada elemento incluye al menos:
+          contractId  — ID numerico del contrato
+          netPos      — contratos netos: positivo=LONG, negativo=SHORT, 0=plano
+          netPrice    — precio medio de la posicion abierta
+        """
+        return await self.get("/position/list")
+
+    async def get_fills(self) -> list[dict]:
+        """Devuelve el historial de fills del usuario autenticado.
+
+        Util para buscar el fill de cierre de un trade que se cerro en el
+        broker sin que el bot recibiese el evento por WebSocket.
+        Cada elemento incluye: orderId, contractId, price, qty, side, timestamp.
+        """
+        return await self.get("/fill/list")

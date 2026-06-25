@@ -1,0 +1,146 @@
+# CI/CD: al hacer push a main, ejecuta los tests, construye la imagen Docker,
+# corre las migraciones de Alembic en RDS y despliega el nuevo contenedor en ECS.
+#
+# Variables necesarias (Settings → Variables en el repo de GitHub):
+#   AWS_REGION            ej. eu-west-1
+#   ECR_REPOSITORY        nombre del repositorio en ECR, ej. nq-range-reversal-bot
+#   ECS_CLUSTER           nombre del cluster ECS, ej. trading-cluster
+#   ECS_SERVICE           nombre del servicio ECS, ej. nq-bot-service
+#   ECS_TASK_DEFINITION   nombre de la task definition, ej. nq-bot
+#   ECS_CONTAINER_NAME    nombre del contenedor dentro de la task definition, ej. nq-bot
+#   SUBNET_IDS            subnets para la tarea de migracion, ej. subnet-abc,subnet-def
+#   SECURITY_GROUP_IDS    security groups para la tarea de migracion, ej. sg-abc123
+#
+# Secretos necesarios (Settings → Secrets en el repo de GitHub):
+#   AWS_ACCESS_KEY_ID     clave de acceso del IAM user de CI/CD
+#   AWS_SECRET_ACCESS_KEY secreto del IAM user de CI/CD
+
+name: Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+
+env:
+  AWS_REGION:           ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY:       ${{ vars.ECR_REPOSITORY }}
+  ECS_CLUSTER:          ${{ vars.ECS_CLUSTER }}
+  ECS_SERVICE:          ${{ vars.ECS_SERVICE }}
+  ECS_TASK_DEFINITION:  ${{ vars.ECS_TASK_DEFINITION }}
+  ECS_CONTAINER_NAME:   ${{ vars.ECS_CONTAINER_NAME }}
+
+jobs:
+  test-build-deploy:
+    name: Test → Build → Migrate → Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------ #
+      # 1. Codigo fuente
+      # ------------------------------------------------------------------ #
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------ #
+      # 2. Tests
+      # ------------------------------------------------------------------ #
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python3 -m pytest --ignore=tests/test_order_manager.py --ignore=tests/test_user_socket.py -q
+
+      # ------------------------------------------------------------------ #
+      # 3. Construir imagen y subir a ECR
+      # ------------------------------------------------------------------ #
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          REGISTRY:  ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push    $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ------------------------------------------------------------------ #
+      # 4. Migraciones de Alembic (tarea one-off en ECS antes del deploy)
+      # ------------------------------------------------------------------ #
+      - name: Run Alembic migrations
+        run: |
+          TASK_ARN=$(aws ecs run-task \
+            --cluster $ECS_CLUSTER \
+            --task-definition $ECS_TASK_DEFINITION \
+            --launch-type FARGATE \
+            --network-configuration \
+              "awsvpcConfiguration={
+                subnets=[${{ vars.SUBNET_IDS }}],
+                securityGroups=[${{ vars.SECURITY_GROUP_IDS }}],
+                assignPublicIp=DISABLED
+              }" \
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"$ECS_CONTAINER_NAME\",
+                \"command\": [\"python3\", \"-m\", \"alembic\", \"upgrade\", \"head\"]
+              }]
+            }" \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "Migration task ARN: $TASK_ARN"
+
+          aws ecs wait tasks-stopped \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster $ECS_CLUSTER \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Las migraciones fallaron con exit code $EXIT_CODE. Deploy cancelado."
+            exit 1
+          fi
+          echo "Migraciones completadas con exito."
+
+      # ------------------------------------------------------------------ #
+      # 5. Actualizar task definition y desplegar en ECS
+      # ------------------------------------------------------------------ #
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_DEFINITION \
+            --query taskDefinition > task-definition.json
+
+      - name: Render updated task definition with new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition:  task-definition.json
+          container-name:   ${{ env.ECS_CONTAINER_NAME }}
+          image:            ${{ steps.build.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition:          ${{ steps.render.outputs.task-definition }}
+          service:                  ${{ env.ECS_SERVICE }}
+          cluster:                  ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

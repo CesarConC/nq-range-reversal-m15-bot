@@ -34,6 +34,24 @@ class CandleAggregator:
         self._low: Optional[float] = None
         self._close: Optional[float] = None
 
+    def seed(self, candle: Candle) -> None:
+        """Pre-carga el estado de la vela parcial actual.
+
+        Llamar una vez antes de recibir ticks del WebSocket para que el
+        aggregator conozca el OHLC acumulado desde el inicio real del periodo,
+        no solo desde que arranco el bot.
+        El primer tick posterior al seed continuara construyendo sobre esta base.
+        """
+        self._bucket_start = candle.open_time
+        self._open = candle.open
+        self._high = candle.high
+        self._low = candle.low
+        self._close = candle.close
+        logger.info(
+            "Aggregator %s pre-cargado: open_time=%s O=%.2f H=%.2f L=%.2f C=%.2f",
+            self._label, candle.open_time, candle.open, candle.high, candle.low, candle.close,
+        )
+
     def on_quote(self, quote: Quote, timestamp: Optional[datetime] = None) -> None:
         price = quote.last
         if price is None and quote.bid is not None and quote.ask is not None:

@@ -1,0 +1,28 @@
+# Entorno virtual local
+.venv/
+
+# Git
+.git/
+.gitignore
+
+# Secretos — nunca en la imagen
+.env
+
+# Artefactos de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Base de datos local
+*.db
+risk_state.json
+
+# Tests — no necesarios en produccion
+tests/
+
+# Archivos del sistema
+.DS_Store
+
+# Notas y documentos de desarrollo
+notas.txt

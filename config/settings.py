@@ -108,6 +108,9 @@ class BotSettings(BaseSettings):
     # --- WebSocket ---
     HEARTBEAT_INTERVAL: float = Field(default=2.5, env='HEARTBEAT_INTERVAL')  # segundos entre heartbeats
 
+    # --- Reintentos ---
+    RESTART_DELAY_SECONDS: int = Field(default=30, env='RESTART_DELAY_SECONDS')  # espera entre reinicios de cuenta
+
     # --- Persistencia ---
     DB_PATH: str = Field(default="bot.db", env='DB_PATH')
     DATABASE_URL: str = Field(default="", env='DATABASE_URL')

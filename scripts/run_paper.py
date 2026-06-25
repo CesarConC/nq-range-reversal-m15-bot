@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 import signal
+from datetime import datetime, timedelta, timezone
 
 from monitoring.logger import setup_logging
 from config.settings import TradovateConfig, bot_settings
@@ -37,9 +38,65 @@ from persistence.init_db import create_db_and_tables
 from persistence.models import Account
 from persistence.repository import TradeRepository
 from persistence.session import get_session
+from tradovate.models import Candle
 
 setup_logging()
 logger = logging.getLogger("run_paper")
+
+
+async def _seed_m15_bar(engine: Engine, rest_client: TradovateRestClient, symbol: str) -> None:
+    """Obtiene la vela M15 que esta en curso y pre-carga el aggregator del engine.
+
+    Al arrancar el bot a mitad de un periodo M15, el aggregator desconoce los
+    ticks anteriores al arranque. Este metodo recupera el OHLC acumulado desde
+    el inicio real del periodo via REST y lo carga en el aggregator, de forma
+    que los ticks del WebSocket continuan construyendo sobre datos completos.
+
+    Si la API no devuelve el bar actual (red, horario fuera de mercado, etc.)
+    loguea un aviso y deja el aggregator en su estado inicial: la primera vela
+    M15 sera incompleta pero el bot operara con normalidad desde la siguiente.
+    """
+    log = logging.getLogger("seed_m15")
+    try:
+        now = datetime.now(timezone.utc)
+        bucket_index = int(now.timestamp() / 60) // 15
+        current_bucket_start = datetime.fromtimestamp(bucket_index * 15 * 60, tz=timezone.utc)
+
+        bars = await rest_client.get_chart_bars(symbol, timeframe_minutes=15, n_bars=2)
+        if not bars:
+            log.warning("Sin datos historicos M15 de la API. Primera vela sera incompleta.")
+            return
+
+        matching = None
+        for bar in bars:
+            bar_ts = datetime.fromisoformat(bar["timestamp"].replace("Z", "+00:00"))
+            if bar_ts == current_bucket_start:
+                matching = bar
+                break
+
+        if matching is None:
+            log.warning(
+                "La API no devolvio la vela M15 actual (bucket=%s). "
+                "Primera vela sera incompleta.",
+                current_bucket_start.isoformat(),
+            )
+            return
+
+        candle = Candle(
+            timeframe="M15",
+            open_time=current_bucket_start,
+            close_time=current_bucket_start + timedelta(minutes=15),
+            open=float(matching["open"]),
+            high=float(matching["high"]),
+            low=float(matching["low"]),
+            close=float(matching["close"]),
+        )
+        engine.seed_m15_bar(candle)
+
+    except Exception:
+        log.exception(
+            "Error al obtener la vela M15 actual. Primera vela sera incompleta."
+        )
 
 
 def _load_credentials(account: Account) -> TradovateConfig:
@@ -175,6 +232,8 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
         trade_repo=trade_repo,
         contract_multiplier=account.point_value,
     )
+
+    await _seed_m15_bar(engine, rest_client, account.symbol)
 
     feed = MarketDataFeed(
         md_ws_url=config.md_ws_url,

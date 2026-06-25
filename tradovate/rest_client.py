@@ -55,6 +55,29 @@ class TradovateRestClient:
         para saber el accountId/accountSpec a usar al mandar ordenes)."""
         return await self.get("/account/list")
 
+    async def get_chart_bars(self, symbol: str, timeframe_minutes: int, n_bars: int = 2) -> list[dict]:
+        """Obtiene los ultimos n_bars de velas del timeframe indicado.
+
+        Pide 2 barras por defecto porque algunos brokers incluyen la barra
+        actual (incompleta) como ultimo elemento junto a la ultima completa.
+        Devuelve la lista de bars tal como la devuelve Tradovate; cada elemento
+        contiene al menos: timestamp, open, high, low, close.
+        """
+        body = {
+            "symbol": symbol,
+            "chartDescription": {
+                "underlyingType": "MinuteBar",
+                "elementSize": timeframe_minutes,
+                "elementSizeUnit": "UnderlyingUnits",
+                "withHistogram": False,
+            },
+            "timeRange": {
+                "asMuchAsElements": n_bars,
+            },
+        }
+        response = await self.post("/md/getChart", body)
+        return response.get("bars", [])
+
     async def get_positions(self) -> list[dict]:
         """Devuelve todas las posiciones abiertas del usuario autenticado.
 

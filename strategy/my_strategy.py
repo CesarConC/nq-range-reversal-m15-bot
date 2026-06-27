@@ -31,7 +31,8 @@ Resumen de la logica (confirmada con el usuario antes de programar):
 """
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from strategy.base_strategy import BaseStrategy
 from tradovate.models import Candle, TradeSignal
@@ -194,3 +195,53 @@ class MyStrategy(BaseStrategy):
                 f"[{r.range_low:.2f}, {r.range_high:.2f}]"
             ),
         )
+
+    async def seed_bars(self, engine: Any, rest_client: Any, symbol: str) -> None:
+        """Obtiene la vela M15 en curso via REST y la pre-carga en el aggregator.
+
+        Al arrancar a mitad de un periodo M15, el aggregator no sabe nada de
+        los ticks anteriores. Este metodo recupera el OHLC acumulado desde el
+        inicio del periodo y lo inyecta como punto de partida, de forma que los
+        ticks del WebSocket continuan sobre datos reales en lugar de empezar vacios.
+
+        Si la API no responde (fuera de horario, red caida...) loguea un aviso
+        y deja el aggregator vacio: la primera vela sera incompleta pero el bot
+        opera con normalidad desde la siguiente.
+        """
+        log = logging.getLogger("seed_m15")
+        try:
+            now = datetime.now(timezone.utc)
+            bucket_index = int(now.timestamp() / 60) // 15
+            current_bucket_start = datetime.fromtimestamp(bucket_index * 15 * 60, tz=timezone.utc)
+
+            bars = await rest_client.get_chart_bars(symbol, timeframe_minutes=15, n_bars=2)
+            if not bars:
+                log.warning("Sin datos historicos M15 de la API. Primera vela sera incompleta.")
+                return
+
+            matching = next(
+                (b for b in bars
+                 if datetime.fromisoformat(b["timestamp"].replace("Z", "+00:00")) == current_bucket_start),
+                None,
+            )
+            if matching is None:
+                log.warning(
+                    "La API no devolvio la vela M15 actual (bucket=%s). Primera vela sera incompleta.",
+                    current_bucket_start.isoformat(),
+                )
+                return
+
+            from tradovate.models import Candle
+            candle = Candle(
+                timeframe="M15",
+                open_time=current_bucket_start,
+                close_time=current_bucket_start + timedelta(minutes=15),
+                open=float(matching["open"]),
+                high=float(matching["high"]),
+                low=float(matching["low"]),
+                close=float(matching["close"]),
+            )
+            engine.seed_m15_bar(candle)
+
+        except Exception:
+            log.exception("Error al obtener la vela M15 actual. Primera vela sera incompleta.")

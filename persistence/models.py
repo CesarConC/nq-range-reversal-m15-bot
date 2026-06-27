@@ -338,8 +338,7 @@ class Account(SQLModel, table=True):
     Una fila por cuenta; el script principal arranca un engine por cada
     cuenta con is_active=True.
 
-    Las credenciales de Tradovate NO se guardan aqui: secrets_key apunta
-    al secreto en AWS Secrets Manager (o al prefijo de env vars en local).
+    Las credenciales de Tradovate se almacenan directamente en esta tabla.
     """
     __tablename__ = 'account'
 
@@ -356,13 +355,34 @@ class Account(SQLModel, table=True):
         nullable=False,
         description='"demo" o "live". Determina contra que entorno de Tradovate opera.',
     )
-    secrets_key: str = Field(
-        nullable=False,
-        description='Referencia al secreto en AWS Secrets Manager, ej. "/bot/apex1/tradovate". En local se ignora y se usan las vars TRADOVATE_* del entorno.',
-    )
     username: str = Field(
         nullable=False,
-        description='Nombre de usuario de Tradovate (email o login). No es sensible; la contrasena y credenciales API estan en Secrets Manager.',
+        description='Email o login de Tradovate.',
+    )
+    password: str = Field(
+        nullable=False,
+        description='Contraseña de Tradovate.',
+    )
+    cid: str = Field(
+        nullable=False,
+        description='Client ID de la aplicacion Tradovate (ajustes > API).',
+    )
+    secret: str = Field(
+        nullable=False,
+        description='Client secret de la aplicacion Tradovate.',
+    )
+    app_id: str = Field(
+        default='MyTradingBot',
+        nullable=False,
+        description='Nombre de la aplicacion registrada en Tradovate.',
+    )
+    app_version: str = Field(
+        default='1.0',
+        nullable=False,
+    )
+    device_id: str = Field(
+        default='bot-device-001',
+        nullable=False,
     )
     strategy: str = Field(
         nullable=False,
@@ -428,15 +448,10 @@ class Account(SQLModel, table=True):
             raise ValueError("tradovate_env must be 'demo' or 'live'")
         return v
 
-    @field_validator('secrets_key')
+    @field_validator('username', 'password', 'cid', 'secret')
     @classmethod
-    def _validate_secrets_key(cls, v: str) -> str:
-        return validate_non_blank_str(v, 'secrets_key')
-
-    @field_validator('username')
-    @classmethod
-    def _validate_username(cls, v: str) -> str:
-        return validate_non_blank_str(v, 'username')
+    def _validate_credentials(cls, v: str, info) -> str:
+        return validate_non_blank_str(v, info.field_name)
 
     @field_validator('strategy')
     @classmethod

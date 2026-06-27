@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from persistence.common import TradeStatus, now_utc
@@ -207,6 +208,51 @@ class TradeRepository:
             account_id, pnl, len(trades),
         )
         return pnl
+
+    def get_total_pnl(self, account_id: str, db: Session) -> float:
+        """Suma del PnL de todos los trades cerrados de la cuenta (historico completo)."""
+        statement = select(Trade).where(
+            Trade.account_id == account_id,
+            Trade.status == TradeStatus.CLOSED,
+        )
+        trades = db.exec(statement).all()
+        return sum(t.pnl for t in trades if t.pnl is not None)
+
+    def get_trades_paged(
+        self,
+        account_id: str,
+        db: Session,
+        page: int = 1,
+        page_size: int = 20,
+        direction: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> tuple[list[Trade], int]:
+        """Trades cerrados paginados con filtros opcionales. Devuelve (rows, total)."""
+        conditions = [
+            Trade.account_id == account_id,
+            Trade.status == TradeStatus.CLOSED,
+        ]
+        if direction:
+            conditions.append(Trade.direction == direction)
+        if date_from:
+            conditions.append(Trade.exit_ts >= date_from)
+        if date_to:
+            conditions.append(Trade.exit_ts <= date_to)
+
+        total = db.exec(
+            select(func.count(Trade.uid)).where(*conditions)
+        ).one()
+
+        rows = db.exec(
+            select(Trade)
+            .where(*conditions)
+            .order_by(Trade.exit_ts.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+
+        return list(rows), total
 
     def get_active_accounts(self, db: Session) -> list[Account]:
         """Devuelve todas las cuentas con is_active=True, ordenadas por account_id."""

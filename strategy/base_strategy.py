@@ -7,7 +7,7 @@ rest_client. La estrategia solo conoce objetos Candle ya cerrados
 backtest y para vivo.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from tradovate.models import Candle, TradeSignal
 
@@ -17,6 +17,15 @@ class BaseStrategy(ABC):
     # Determinan el dimensionamiento de posicion y el objetivo de la operacion.
     risk_pct: float   # fraccion del balance inicial a arriesgar por trade (ej. 0.01 = 1%)
     rr_ratio: float   # multiplicador TP/riesgo (ej. 1.0 -> TP = 1 * riesgo; 0.33 -> TP = 0.33 * riesgo)
+
+    async def seed_bars(self, engine: Any, rest_client: Any, symbol: str) -> None:
+        """Pre-carga el estado historico en el engine antes de conectar el WebSocket.
+
+        Estrategias que usan aggregators con estado (M15, M5...) deben
+        sobreescribir este metodo para obtener la vela parcial en curso via
+        REST e inyectarla en engine.seed_m15_bar / seed_m5_bar.
+        Por defecto no hace nada (valido para estrategias stateless).
+        """
 
     def on_m15_close(self, candle: Candle) -> None:
         """Opcional: se llama cada vez que cierra una vela de M15."""

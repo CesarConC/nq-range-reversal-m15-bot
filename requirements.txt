@@ -1,8 +1,8 @@
 httpx>=0.27
 websockets>=12.0
 python-dotenv>=1.0
-pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic>=2.7.0
+pydantic-settings>=2.6.0
 sqlmodel>=0.0.21
 alembic>=1.13
 python-json-logger>=2.0

@@ -11,11 +11,12 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import account, bot, position, status, trades
+from api.routes import account, admin, bot, position, status, trades
 
 logger = logging.getLogger(__name__)
 
 _PREFIX = "/accounts/{account_id}"
+_ADMIN_PREFIX = "/admin"
 
 
 def create_app() -> FastAPI:
@@ -28,6 +29,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(admin.router, prefix=_ADMIN_PREFIX)
     app.include_router(status.router, prefix=_PREFIX)
     app.include_router(account.router, prefix=_PREFIX)
     app.include_router(position.router, prefix=_PREFIX)

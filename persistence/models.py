@@ -334,47 +334,52 @@ class RiskState(SQLModel, table=True):
 
 class Account(SQLModel, table=True):
     """
-    Registro de cada cuenta fondeada que opera el bot.
+    Registro de cada cuenta de prop firm que opera el bot.
     Una fila por cuenta; el script principal arranca un engine por cada
-    cuenta con is_active=True.
-
-    Las credenciales de Tradovate se almacenan directamente en esta tabla.
+    cuenta con is_active=True. Las credenciales se almacenan directamente.
     """
     __tablename__ = 'account'
 
     account_id: str = Field(
         primary_key=True,
-        description='Identificador unico de la cuenta, ej. "apex1", "topstep2".',
+        description='Identificador unico de la cuenta, ej. "lucid1", "fundednext2".',
     )
     label: str = Field(
         nullable=False,
-        description='Nombre legible para logs y alertas, ej. "Apex Prop #1".',
+        description='Nombre legible para logs y alertas, ej. "Lucid Prop #1".',
     )
-    tradovate_env: str = Field(
+    prop_firm: str = Field(
+        default='',
+        nullable=False,
+        description='Nombre de la prop firm, ej. "Lucid", "FundedNext".',
+    )
+    account_type: str = Field(
+        default='challenge',
+        nullable=False,
+        description='"challenge" (examen) o "funded" (fondeada).',
+    )
+    environment: str = Field(
         default='demo',
         nullable=False,
-        description='"demo" o "live". Determina contra que entorno de Tradovate opera.',
+        description='"demo" o "live".',
     )
     username: str = Field(
         nullable=False,
-        description='Email o login de Tradovate.',
+        description='Usuario de login en la plataforma.',
     )
     password: str = Field(
         nullable=False,
-        description='Contraseña de Tradovate.',
+        description='Contraseña de la plataforma.',
     )
-    cid: str = Field(
+    system_name: str = Field(
+        default='',
         nullable=False,
-        description='Client ID de la aplicacion Tradovate (ajustes > API).',
-    )
-    secret: str = Field(
-        nullable=False,
-        description='Client secret de la aplicacion Tradovate.',
+        description='Nombre del sistema Rithmic, ej. "Rithmic Paper Trading", "Rithmic 01".',
     )
     app_id: str = Field(
         default='MyTradingBot',
         nullable=False,
-        description='Nombre de la aplicacion registrada en Tradovate.',
+        description='Nombre de la aplicacion.',
     )
     app_version: str = Field(
         default='1.0',
@@ -386,15 +391,7 @@ class Account(SQLModel, table=True):
     )
     strategy: str = Field(
         nullable=False,
-        description='Clave del registro de estrategias, ej. "range_reversal_m15". Debe existir en strategy/registry.py.',
-    )
-    symbol: str = Field(
-        nullable=False,
-        description='Contrato activo a operar, ej. "MNQU6".',
-    )
-    point_value: float = Field(
-        nullable=False,
-        description='USD por punto del contrato: MNQ=2.0, NQ=20.0.',
+        description='Clave del registro de estrategias, ej. "range_reversal_m15".',
     )
     initial_balance: float = Field(
         nullable=False,
@@ -403,6 +400,11 @@ class Account(SQLModel, table=True):
     max_drawdown: float = Field(
         nullable=False,
         description='Drawdown maximo permitido en USD (trailing EOD).',
+    )
+    daily_drawdown: float = Field(
+        default=0.0,
+        nullable=False,
+        description='Limite de perdida diaria en USD. 0 = sin limite diario.',
     )
     profit_target: float = Field(
         nullable=False,
@@ -415,6 +417,16 @@ class Account(SQLModel, table=True):
     max_contracts: int = Field(
         nullable=False,
         description='Maximo de contratos simultaneos.',
+    )
+    account_cost: float = Field(
+        default=0.0,
+        nullable=False,
+        description='Coste pagado por el examen o la cuenta en USD.',
+    )
+    withdrawn_amount: float = Field(
+        default=0.0,
+        nullable=False,
+        description='Dinero retirado de la cuenta hasta la fecha en USD.',
     )
     is_active: bool = Field(
         default=True,
@@ -441,14 +453,21 @@ class Account(SQLModel, table=True):
     def _validate_label(cls, v: str) -> str:
         return validate_non_blank_str(v, 'label')
 
-    @field_validator('tradovate_env')
+    @field_validator('account_type')
     @classmethod
-    def _validate_tradovate_env(cls, v: str) -> str:
-        if v not in ('demo', 'live'):
-            raise ValueError("tradovate_env must be 'demo' or 'live'")
+    def _validate_account_type(cls, v: str) -> str:
+        if v not in ('challenge', 'funded'):
+            raise ValueError("account_type must be 'challenge' or 'funded'")
         return v
 
-    @field_validator('username', 'password', 'cid', 'secret')
+    @field_validator('environment')
+    @classmethod
+    def _validate_environment(cls, v: str) -> str:
+        if v not in ('demo', 'live'):
+            raise ValueError("environment must be 'demo' or 'live'")
+        return v
+
+    @field_validator('username', 'password')
     @classmethod
     def _validate_credentials(cls, v: str, info) -> str:
         return validate_non_blank_str(v, info.field_name)
@@ -457,16 +476,6 @@ class Account(SQLModel, table=True):
     @classmethod
     def _validate_strategy(cls, v: str) -> str:
         return validate_non_blank_str(v, 'strategy')
-
-    @field_validator('symbol')
-    @classmethod
-    def _validate_symbol(cls, v: str) -> str:
-        return validate_symbol(v)
-
-    @field_validator('point_value')
-    @classmethod
-    def _validate_point_value(cls, v: float) -> float:
-        return validate_positive_float(v, 'point_value')
 
     @field_validator('initial_balance')
     @classmethod
@@ -477,6 +486,13 @@ class Account(SQLModel, table=True):
     @classmethod
     def _validate_max_drawdown(cls, v: float) -> float:
         return validate_positive_float(v, 'max_drawdown')
+
+    @field_validator('daily_drawdown', 'account_cost', 'withdrawn_amount')
+    @classmethod
+    def _validate_non_negative(cls, v: float, info) -> float:
+        if v < 0:
+            raise ValueError(f'{info.field_name} must be >= 0')
+        return v
 
     @field_validator('profit_target')
     @classmethod

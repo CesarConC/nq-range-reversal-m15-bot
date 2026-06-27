@@ -254,6 +254,10 @@ class TradeRepository:
 
         return list(rows), total
 
+    def get_all_accounts(self, db: Session) -> list[Account]:
+        """Devuelve todas las cuentas, ordenadas por account_id."""
+        return list(db.exec(select(Account).order_by(Account.account_id)).all())
+
     def get_active_accounts(self, db: Session) -> list[Account]:
         """Devuelve todas las cuentas con is_active=True, ordenadas por account_id."""
         statement = select(Account).where(Account.is_active == True).order_by(Account.account_id)  # noqa: E712

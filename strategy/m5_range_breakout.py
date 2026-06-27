@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 class M5RangeBreakout(BaseStrategy):
     risk_pct: float = 0.01    # 1% del balance inicial por operacion
     rr_ratio: float = 1.0     # TP = 1 * distancia_SL (ratio 1:1)
+    symbol: str = 'MNQ'
+    point_value: float = 2.0
 
     def __init__(self):
         self._range_high: Optional[float] = None

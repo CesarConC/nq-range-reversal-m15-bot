@@ -67,6 +67,7 @@ class Engine:
         self.contract_multiplier = contract_multiplier
 
         self.state = AccountState()
+        self.last_price: float = 0.0
 
         # Estado interno para enlazar señal -> trade en DB
         self._pending_signal_uid: Optional[str] = None
@@ -95,6 +96,8 @@ class Engine:
     # ------------------------------------------------------------------ #
     def on_quote(self, quote: Quote, timestamp: Optional[datetime] = None) -> None:
         """Pasar como callback directo a MarketDataFeed(on_quote=engine.on_quote)."""
+        if quote.last is not None:
+            self.last_price = quote.last
         self._m1_agg.on_quote(quote, timestamp)
         self._m5_agg.on_quote(quote, timestamp)
         self._m15_agg.on_quote(quote, timestamp)

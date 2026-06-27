@@ -54,6 +54,8 @@ class _RangeState:
 class MyStrategy(BaseStrategy):
     risk_pct: float = 0.015   # 1.5% del balance inicial por operacion
     rr_ratio: float = 0.33    # TP = 0.33 * distancia_SL (reward pequeno, alta tasa de acierto)
+    symbol: str = 'MNQ'
+    point_value: float = 2.0
 
     def __init__(self):
         self._range: Optional[_RangeState] = None

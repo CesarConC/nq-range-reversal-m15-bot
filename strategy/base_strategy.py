@@ -13,10 +13,11 @@ from tradovate.models import Candle, TradeSignal
 
 
 class BaseStrategy(ABC):
-    # Cada subclase DEBE declarar estos dos atributos de clase.
-    # Determinan el dimensionamiento de posicion y el objetivo de la operacion.
-    risk_pct: float   # fraccion del balance inicial a arriesgar por trade (ej. 0.01 = 1%)
-    rr_ratio: float   # multiplicador TP/riesgo (ej. 1.0 -> TP = 1 * riesgo; 0.33 -> TP = 0.33 * riesgo)
+    # Cada subclase DEBE declarar estos cuatro atributos de clase.
+    risk_pct: float    # fraccion del balance inicial a arriesgar por trade (ej. 0.01 = 1%)
+    rr_ratio: float    # multiplicador TP/riesgo (ej. 1.0 -> TP = 1 * riesgo; 0.33 -> TP = 0.33 * riesgo)
+    symbol: str        # simbolo del contrato a operar (ej. "MNQ")
+    point_value: float # USD por punto del contrato (MNQ=2.0, NQ=20.0)
 
     async def seed_bars(self, engine: Any, rest_client: Any, symbol: str) -> None:
         """Pre-carga el estado historico en el engine antes de conectar el WebSocket.

@@ -30,6 +30,7 @@ from persistence.models import Account
 from persistence.repository import TradeRepository
 from persistence.session import get_session
 from risk.risk_manager import RiskManager
+from strategy.base_strategy import BaseStrategy
 from tradovate.rest_client import TradovateRestClient
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 async def reconcile(
     account: Account,
+    strategy: BaseStrategy,
     rest_client: TradovateRestClient,
     trade_repo: TradeRepository,
     risk_manager: RiskManager,
@@ -48,7 +50,7 @@ async def reconcile(
     log = logging.getLogger(f"reconciler.{account.account_id}")
 
     # --- Posicion en el broker ----------------------------------------
-    contract_id = await rest_client.find_contract_id(account.symbol)
+    contract_id = await rest_client.find_contract_id(strategy.symbol)
     all_positions = await rest_client.get_positions()
     broker_pos = next(
         (p for p in all_positions if p.get("contractId") == contract_id),
@@ -123,7 +125,7 @@ async def _handle_missed_entry(
     with get_session() as db:
         uid = trade_repo.open_trade(
             account_id=account.account_id,
-            symbol=account.symbol,
+            symbol=strategy.symbol,
             direction=direction,
             qty=qty,
             entry_price=broker_net_price,
@@ -178,7 +180,7 @@ async def _handle_missed_exit(
                 entry_price = trade["entry_price"]
                 qty = trade["qty"]
                 direction = trade["direction"]
-                point_value = account.point_value
+                point_value = strategy.point_value
                 pnl = (
                     (exit_price - entry_price) * qty * point_value
                     if direction == "LONG"

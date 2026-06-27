@@ -40,7 +40,7 @@ class AccountCreate(BaseModel):
     account_id: str
     label: str
     prop_firm: str = ''
-    account_type: str = 'evaluation'
+    account_type: str = 'challenge'
     environment: str = 'demo'
     username: str
     password: str
@@ -49,8 +49,6 @@ class AccountCreate(BaseModel):
     app_version: str = '1.0'
     device_id: str = 'bot-device-001'
     strategy: str
-    symbol: str
-    point_value: float
     initial_balance: float
     max_drawdown: float
     daily_drawdown: float = 0.0

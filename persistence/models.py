@@ -354,9 +354,9 @@ class Account(SQLModel, table=True):
         description='Nombre de la prop firm, ej. "Lucid", "FundedNext".',
     )
     account_type: str = Field(
-        default='evaluation',
+        default='challenge',
         nullable=False,
-        description='"evaluation" (examen) o "funded" (fondeada).',
+        description='"challenge" (examen) o "funded" (fondeada).',
     )
     environment: str = Field(
         default='demo',
@@ -392,14 +392,6 @@ class Account(SQLModel, table=True):
     strategy: str = Field(
         nullable=False,
         description='Clave del registro de estrategias, ej. "range_reversal_m15".',
-    )
-    symbol: str = Field(
-        nullable=False,
-        description='Contrato activo a operar, ej. "MNQU6".',
-    )
-    point_value: float = Field(
-        nullable=False,
-        description='USD por punto del contrato: MNQ=2.0, NQ=20.0.',
     )
     initial_balance: float = Field(
         nullable=False,
@@ -464,8 +456,8 @@ class Account(SQLModel, table=True):
     @field_validator('account_type')
     @classmethod
     def _validate_account_type(cls, v: str) -> str:
-        if v not in ('evaluation', 'funded'):
-            raise ValueError("account_type must be 'evaluation' or 'funded'")
+        if v not in ('challenge', 'funded'):
+            raise ValueError("account_type must be 'challenge' or 'funded'")
         return v
 
     @field_validator('environment')
@@ -484,16 +476,6 @@ class Account(SQLModel, table=True):
     @classmethod
     def _validate_strategy(cls, v: str) -> str:
         return validate_non_blank_str(v, 'strategy')
-
-    @field_validator('symbol')
-    @classmethod
-    def _validate_symbol(cls, v: str) -> str:
-        return validate_symbol(v)
-
-    @field_validator('point_value')
-    @classmethod
-    def _validate_point_value(cls, v: float) -> float:
-        return validate_positive_float(v, 'point_value')
 
     @field_validator('initial_balance')
     @classmethod

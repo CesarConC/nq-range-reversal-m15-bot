@@ -50,7 +50,7 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository, contr
         consistency_pct=account.consistency_pct,
         max_contracts=account.max_contracts,
         risk_pct=strategy.risk_pct,
-        point_value=account.point_value,
+        point_value=strategy.point_value,
     )
 
     with get_session() as db:
@@ -72,12 +72,12 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository, contr
 
     engine = Engine(
         strategy=strategy,
-        symbol=account.symbol,
+        symbol=strategy.symbol,
         account_id=account.account_id,
         risk_manager=risk_manager,
         order_manager=None,
         trade_repo=trade_repo,
-        contract_multiplier=account.point_value,
+        contract_multiplier=strategy.point_value,
     )
 
     if controller is not None:

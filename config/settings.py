@@ -99,9 +99,6 @@ class BotSettings(BaseSettings):
     MAX_CONTRACTS: int = Field(default=1, env='MAX_CONTRACTS')
     RISK_PCT: float = Field(default=0.015, env='RISK_PCT')               # 1.5% del balance inicial por operacion
 
-    # --- Estrategia ---
-    RR_RATIO: float = Field(default=0.33, env='RR_RATIO')               # reward = 0.33 * risk
-
     # --- Logging ---
     LOG_FORMAT: str = Field(default="text", env='LOG_FORMAT')  # "text" en local, "json" en AWS
 
@@ -142,4 +139,5 @@ class StrategyRegistry:
     """
     REGISTRY: dict[str, str] = {
         "range_reversal_m15": "strategy.my_strategy.MyStrategy",
+        "m5_range_breakout":  "strategy.m5_range_breakout.M5RangeBreakout",
     }

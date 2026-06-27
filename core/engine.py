@@ -9,6 +9,7 @@ Flujo de datos (entrada):
     Engine.on_quote()
             |
             +--> CandleAggregator(M1)  --on_candle_close--> strategy.on_m1_close()  -> TradeSignal?
+            +--> CandleAggregator(M5)  --on_candle_close--> strategy.on_m5_close()  -> TradeSignal?
             +--> CandleAggregator(M15) --on_candle_close--> strategy.on_m15_close()
 
 Flujo de datos (vuelta, fills reales):
@@ -74,6 +75,7 @@ class Engine:
         self._open_trade_uid: Optional[str] = None
 
         self._m1_agg = CandleAggregator(1, on_candle_close=self._on_m1_close)
+        self._m5_agg = CandleAggregator(5, on_candle_close=self._on_m5_close)
         self._m15_agg = CandleAggregator(15, on_candle_close=self._on_m15_close)
 
     def seed_m15_bar(self, candle) -> None:
@@ -84,12 +86,17 @@ class Engine:
         """
         self._m15_agg.seed(candle)
 
+    def seed_m5_bar(self, candle) -> None:
+        """Pre-carga la vela M5 parcial actual en el aggregator."""
+        self._m5_agg.seed(candle)
+
     # ------------------------------------------------------------------ #
     # Entrada: quotes -> velas -> estrategia
     # ------------------------------------------------------------------ #
     def on_quote(self, quote: Quote, timestamp: Optional[datetime] = None) -> None:
         """Pasar como callback directo a MarketDataFeed(on_quote=engine.on_quote)."""
         self._m1_agg.on_quote(quote, timestamp)
+        self._m5_agg.on_quote(quote, timestamp)
         self._m15_agg.on_quote(quote, timestamp)
 
     def _on_m15_close(self, candle) -> None:
@@ -98,6 +105,15 @@ class Engine:
             self.symbol, candle.open, candle.high, candle.low, candle.close,
         )
         self.strategy.on_m15_close(candle)
+
+    def _on_m5_close(self, candle) -> None:
+        logger.info(
+            "[%s] Vela M5 cerrada: O=%.2f H=%.2f L=%.2f C=%.2f",
+            self.symbol, candle.open, candle.high, candle.low, candle.close,
+        )
+        signal = self.strategy.on_m5_close(candle)
+        if signal is not None:
+            self._handle_signal(signal)
 
     def _on_m1_close(self, candle) -> None:
         signal = self.strategy.on_m1_close(candle)

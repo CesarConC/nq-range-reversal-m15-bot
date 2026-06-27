@@ -396,10 +396,6 @@ class Account(SQLModel, table=True):
         nullable=False,
         description='Maximo de contratos simultaneos.',
     )
-    risk_pct: float = Field(
-        nullable=False,
-        description='Riesgo por operacion como fraccion del balance inicial, ej. 0.015.',
-    )
     is_active: bool = Field(
         default=True,
         description='Solo las cuentas activas arrancan al iniciar el bot.',
@@ -484,13 +480,6 @@ class Account(SQLModel, table=True):
     def _validate_max_contracts(cls, v: int) -> int:
         if v < 1:
             raise ValueError('max_contracts must be >= 1')
-        return v
-
-    @field_validator('risk_pct')
-    @classmethod
-    def _validate_risk_pct(cls, v: float) -> float:
-        if not (0 < v < 1):
-            raise ValueError('risk_pct must be between 0 and 1 exclusive')
         return v
 
     @field_validator('created_at', 'updated_at')

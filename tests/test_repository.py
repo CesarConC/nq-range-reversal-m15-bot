@@ -232,7 +232,6 @@ def _make_account(account_id: str, is_active: bool = True) -> Account:
         profit_target=3_000.0,
         consistency_pct=0.5,
         max_contracts=1,
-        risk_pct=0.015,
         is_active=is_active,
     )
 

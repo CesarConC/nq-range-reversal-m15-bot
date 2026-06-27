@@ -36,7 +36,6 @@ def upgrade() -> None:
     sa.Column('profit_target', sa.Float(), nullable=False),
     sa.Column('consistency_pct', sa.Float(), nullable=False),
     sa.Column('max_contracts', sa.Integer(), nullable=False),
-    sa.Column('risk_pct', sa.Float(), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),

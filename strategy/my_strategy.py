@@ -33,7 +33,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from config.settings import bot_settings
 from strategy.base_strategy import BaseStrategy
 from tradovate.models import Candle, TradeSignal
 
@@ -52,6 +51,9 @@ class _RangeState:
 
 
 class MyStrategy(BaseStrategy):
+    risk_pct: float = 0.015   # 1.5% del balance inicial por operacion
+    rr_ratio: float = 0.33    # TP = 0.33 * distancia_SL (reward pequeno, alta tasa de acierto)
+
     def __init__(self):
         self._range: Optional[_RangeState] = None
 
@@ -160,8 +162,7 @@ class MyStrategy(BaseStrategy):
             return engulfing.is_bullish
         return not engulfing.is_bullish
 
-    @staticmethod
-    def _build_signal(r: _RangeState, trigger_candle: Candle) -> Optional[TradeSignal]:
+    def _build_signal(self, r: _RangeState, trigger_candle: Candle) -> Optional[TradeSignal]:
         entry = trigger_candle.close
 
         if r.locked_direction == "LONG":
@@ -180,7 +181,7 @@ class MyStrategy(BaseStrategy):
             )
             return None
 
-        risk = reward / bot_settings.RR_RATIO
+        risk = reward / self.rr_ratio
         sl = entry - risk if r.locked_direction == "LONG" else entry + risk
 
         return TradeSignal(

@@ -13,17 +13,25 @@ from tradovate.models import Candle, TradeSignal
 
 
 class BaseStrategy(ABC):
-    @abstractmethod
+    # Cada subclase DEBE declarar estos dos atributos de clase.
+    # Determinan el dimensionamiento de posicion y el objetivo de la operacion.
+    risk_pct: float   # fraccion del balance inicial a arriesgar por trade (ej. 0.01 = 1%)
+    rr_ratio: float   # multiplicador TP/riesgo (ej. 1.0 -> TP = 1 * riesgo; 0.33 -> TP = 0.33 * riesgo)
+
     def on_m15_close(self, candle: Candle) -> None:
-        """Se llama cada vez que cierra una vela de M15. No devuelve señal;
-        solo actualiza el estado interno (ej. el rango activo)."""
-        raise NotImplementedError
+        """Opcional: se llama cada vez que cierra una vela de M15."""
+        pass
 
     @abstractmethod
     def on_m1_close(self, candle: Candle) -> Optional[TradeSignal]:
         """Se llama cada vez que cierra una vela de M1. Devuelve una
         TradeSignal si se cumple la entrada, o None."""
         raise NotImplementedError
+
+    def on_m5_close(self, candle: Candle) -> Optional[TradeSignal]:
+        """Opcional: se llama cada vez que cierra una vela de M5.
+        Devuelve TradeSignal si la estrategia opera en M5, o None."""
+        return None
 
     def on_fill(self, fill: dict) -> None:
         """Opcional: reaccionar a la confirmacion de una ejecucion propia."""

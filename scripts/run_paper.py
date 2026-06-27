@@ -184,13 +184,15 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
     order_manager = OrderManager(rest_client, device_id=config.device_id)
     await order_manager.initialize()
 
+    strategy = build_strategy(account.strategy)
+
     rules = FundedAccountRules(
         initial_balance=account.initial_balance,
         max_drawdown=account.max_drawdown,
         profit_target=account.profit_target,
         consistency_pct=account.consistency_pct,
         max_contracts=account.max_contracts,
-        risk_pct=account.risk_pct,
+        risk_pct=strategy.risk_pct,
         point_value=account.point_value,
     )
 
@@ -221,8 +223,6 @@ async def _run_account_once(account: Account, trade_repo: TradeRepository) -> No
     )
 
     await reconcile(account, rest_client, trade_repo, risk_manager)
-
-    strategy = build_strategy(account.strategy)
     engine = Engine(
         strategy=strategy,
         symbol=account.symbol,
